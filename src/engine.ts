@@ -4,12 +4,12 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { join } from "node:path";
 
 const getLibPath = () => {
-    // 1. Try project root directly (for perf tests)
+    // 1. Try project root directly (for perf tests, assuming cwd is project root)
     const directPath = join(process.cwd(), "core/target/release/libsearch.so");
     if (existsSync(directPath)) return directPath;
 
-    // 2. Try from Electrobun bin folder (5 levels up to project root)
-    const devPath = join(process.cwd(), "../../../../../", "core/target/release/libsearch.so");
+    // 2. Try from Electrobun bin folder (4 levels up to project root)
+    const devPath = join(process.cwd(), "../../../../", "core/target/release/libsearch.so");
     if (existsSync(devPath)) return devPath;
 
     // 3. Try relative path (bundled in app bundle)
@@ -19,7 +19,7 @@ const getLibPath = () => {
     const bundledPath2 = join(import.meta.dir, "../libsearch.so");
     if (existsSync(bundledPath2)) return bundledPath2;
 
-    // 4. Try current working directory
+    // 4. Last resort: current working directory
     const cwdPath = join(process.cwd(), "libsearch.so");
     if (existsSync(cwdPath)) return cwdPath;
 
@@ -32,8 +32,8 @@ const getFilePath = (filename: string) => {
     const directPath = join(process.cwd(), filename);
     if (existsSync(directPath)) return directPath;
 
-    // 2. Try original project root (5 levels up from bin/ in dev)
-    const devPath = join(process.cwd(), "../../../../../", filename);
+    // 2. Try original project root (4 levels up from bin/ in dev)
+    const devPath = join(process.cwd(), "../../../../", filename);
     if (existsSync(devPath)) return devPath;
 
     // 3. Try bundled app structure
@@ -42,7 +42,6 @@ const getFilePath = (filename: string) => {
 
     return join(process.cwd(), filename);
 };
-
 const LIB_PATH = getLibPath();
 const LOG_PATH = getFilePath("db/changes.log.bin");
 const DB_PATH = getFilePath("db/sorted.bin");
@@ -176,24 +175,43 @@ export const Engine = {
  */
 export class DungeonPath {
     lockedNodes: number[] = [];
+    nodeKeywords: string[][] = []; // Store keywords for each node in path
     currentKeywords: string[] = [];
 
     async lockNode(articleId: number, keywords: string[]) {
         this.lockedNodes.push(articleId);
+        this.nodeKeywords.push(keywords);
         
-        if (this.lockedNodes.length === 1) {
-            this.currentKeywords = keywords;
-        } else {
-            // Simplify for now: just use the new keywords to "filter"
-            // In a real intersection, we'd need the hashes.
-            const currentHashes = new Uint32Array(this.currentKeywords.map(k => Number(BigInt.asUintN(32, Bun.hash(k) as bigint))));
-            const nextHashes = new Uint32Array(keywords.map(k => Number(BigInt.asUintN(32, Bun.hash(k) as bigint))));
-            
-            const intersection = Engine.intersect(currentHashes, nextHashes);
-            // Again, placeholder for hash -> word
-            this.currentKeywords = Array.from(intersection).map(h => `hash_${h}`);
-        }
-        
+        this.recalculateIntersection();
         return Engine.getTopMatchesUnique(this.currentKeywords, this.lockedNodes);
+    }
+
+    async unlockNode(index: number) {
+        if (index >= 0 && index < this.lockedNodes.length) {
+            this.lockedNodes.splice(index, 1);
+            this.nodeKeywords.splice(index, 1);
+            this.recalculateIntersection();
+        }
+        return Engine.getTopMatchesUnique(this.currentKeywords, this.lockedNodes);
+    }
+
+    private recalculateIntersection() {
+        if (this.lockedNodes.length === 0) {
+            this.currentKeywords = ["wissen", "daten", "rust"]; // Default
+            return;
+        }
+
+        let intersectionHashes = new Uint32Array(this.nodeKeywords[0].map(k => 
+            Number(BigInt.asUintN(32, Bun.hash(k) as bigint))
+        ));
+
+        for (let i = 1; i < this.nodeKeywords.length; i++) {
+            const nextHashes = new Uint32Array(this.nodeKeywords[i].map(k => 
+                Number(BigInt.asUintN(32, Bun.hash(k) as bigint))
+            ));
+            intersectionHashes = Engine.intersect(intersectionHashes, nextHashes);
+        }
+
+        this.currentKeywords = Array.from(intersectionHashes).map(h => `hash_${h}`);
     }
 }

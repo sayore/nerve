@@ -16,6 +16,9 @@ const win = new BrowserWindow({
                 lockNode: async ({ articleId, keywords }) => {
                     return dungeon.lockNode(articleId, keywords);
                 },
+                unlockNode: async ({ index }) => {
+                    return dungeon.unlockNode(index);
+                },
                 getKeywordsForArticle: async ({ articleId }) => {
                     return Engine.getKeywordsForArticle(articleId);
                 },

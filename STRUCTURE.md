@@ -13,5 +13,7 @@
     - `main.ts`: Frontend logic and interaction handling.
 - `test/`: Testing suite.
   - `perf_test.ts`: High-performance benchmark for the search engine.
+- `electrobun.config.ts`: Configuration for app bundling and views.
 - `Makefile`: Build automation.
+- `run.sh`: Brutalist automation script for build and dev.
 - `package.json`: Project configuration and dependencies.

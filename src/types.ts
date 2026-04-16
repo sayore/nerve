@@ -6,6 +6,10 @@ export type NerveRPCSchema = {
                 params: { articleId: number; keywords: string[] };
                 response: { id: number; score: number }[];
             };
+            unlockNode: {
+                params: { index: number };
+                response: { id: number; score: number }[];
+            };
             getKeywordsForArticle: {
                 params: { articleId: number };
                 response: string[];

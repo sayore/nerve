@@ -2,6 +2,8 @@
 db/*.bin
 core/target
 *.so
+build/
+out/
 
 # dependencies (bun install)
 node_modules
