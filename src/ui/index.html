@@ -7,9 +7,9 @@
         body { 
             margin: 0; 
             overflow: hidden; 
-            background: #000; 
-            color: #0f0; 
-            font-family: 'Courier New', Courier, monospace;
+            background: radial-gradient(circle at center, #111811 0%, #000000 100%); 
+            color: #b3e6b3; 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             width: 100vw;
             height: 100vh;
         }
@@ -22,71 +22,75 @@
 
         .node {
             position: absolute;
-            transition: all 0.8s cubic-bezier(0.19, 1, 0.22, 1);
+            transition: all 0.9s cubic-bezier(0.25, 1, 0.5, 1);
             box-sizing: border-box;
-            border: 1px solid rgba(0, 255, 0, 0.3);
-            background: rgba(0, 15, 0, 0.8);
-            transform: translate(-50%, -50%); /* Centered on left/top coordinates */
+            background: linear-gradient(145deg, rgba(15, 35, 15, 0.4) 0%, rgba(5, 15, 5, 0.8) 100%);
+            border-radius: 12px;
+            transform: translate(-50%, -50%); 
+            backdrop-filter: blur(10px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
 
         /* Central Node: The Focus */
         .node.center {
-            width: 550px;
-            height: 550px;
+            width: 650px;
+            height: 400px;
             left: 50%;
             top: 50%;
             z-index: 50;
-            clip-path: polygon(5% 0%, 95% 0%, 100% 5%, 100% 95%, 95% 100%, 5% 100%, 0% 95%, 0% 5%); /* Chamfered box */
             display: flex;
             flex-direction: column;
-            padding: 40px;
-            font-size: 0.95rem;
-            line-height: 1.6;
-            border: 2px solid #0f0;
-            box-shadow: 0 0 50px rgba(0, 255, 0, 0.2);
-            backdrop-filter: blur(5px);
+            padding: 40px 50px;
+            font-size: 1rem;
+            line-height: 1.7;
+            background: linear-gradient(145deg, rgba(20, 45, 20, 0.8) 0%, rgba(5, 20, 5, 0.95) 100%);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(0, 255, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1);
             cursor: default;
-            color: #fff;
+            color: #e0ffe0;
         }
 
-        /* Hexagonal floating background nodes */
+        /* Elongated floating background nodes */
         .node.floating {
-            width: 260px;
-            height: 300px;
-            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            width: 320px;
+            height: 200px;
             display: flex;
             flex-direction: column;
-            padding: 40px 25px;
-            font-size: 0.65rem;
-            line-height: 1.3;
+            padding: 25px 30px;
+            font-size: 0.75rem;
+            line-height: 1.5;
             overflow: hidden;
             cursor: pointer;
-            opacity: 0.35;
+            opacity: 0.5;
             z-index: 10;
-            color: rgba(0, 255, 0, 0.8);
-            animation: float 8s ease-in-out infinite;
+            color: #8abf8a;
+            animation: float 12s ease-in-out infinite;
         }
         
         .node.floating:hover {
-            opacity: 0.9;
-            transform: translate(-50%, -50%) scale(1.15);
-            background: rgba(0, 30, 0, 0.95);
-            border: 1px solid #0f0;
-            box-shadow: 0 0 40px rgba(0, 255, 0, 0.4);
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1.05);
+            background: linear-gradient(145deg, rgba(25, 55, 25, 0.7) 0%, rgba(10, 25, 10, 0.9) 100%);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.1);
             z-index: 100;
         }
 
         .node-header {
-            font-weight: bold;
-            border-bottom: 1px solid rgba(0, 255, 0, 0.5);
-            margin-bottom: 15px;
+            font-weight: 600;
+            margin-bottom: 12px;
             width: 100%;
-            padding-bottom: 8px;
-            font-size: 0.85rem;
-            color: #0f0;
+            font-size: 0.8rem;
+            color: #4ade80;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 2px;
             flex-shrink: 0;
+            opacity: 0.8;
+        }
+
+        .center .node-header {
+            font-size: 0.9rem;
+            border-bottom: 1px solid rgba(74, 222, 128, 0.2);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
         }
 
         .node-body {
@@ -94,57 +98,53 @@
         }
 
         .floating .node-body {
-            mask-image: linear-gradient(to bottom, black 60%, transparent 95%);
+            mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
         }
 
         .center .node-body {
             mask-image: none; 
             overflow-y: auto;
-            scrollbar-width: thin;
-            scrollbar-color: #0f0 #000;
+            scrollbar-width: none; /* Hide scrollbar for cleaner look */
         }
 
         @keyframes float {
             0% { margin-top: 0px; }
-            50% { margin-top: -15px; }
+            50% { margin-top: -20px; }
             100% { margin-top: 0px; }
         }
 
         /* Top breadcrumb bar for locked nodes history */
         #breadcrumb {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            padding: 10px;
-            background: rgba(0, 0, 0, 0.8);
-            border-bottom: 1px solid #0f0;
+            top: 20px;
+            left: 20px;
             display: flex;
-            gap: 10px;
+            gap: 8px;
             z-index: 200;
-            overflow-x: auto;
-            white-space: nowrap;
-            align-items: center;
-            font-size: 0.8rem;
+            flex-wrap: wrap;
+            max-width: 80%;
         }
         
         .breadcrumb-item {
-            padding: 5px 15px;
-            background: #0f0;
-            color: #000;
-            font-weight: bold;
+            padding: 6px 16px;
+            background: rgba(20, 50, 20, 0.6);
+            color: #8abf8a;
+            font-size: 0.75rem;
+            border-radius: 20px;
+            backdrop-filter: blur(5px);
             cursor: pointer;
-            clip-path: polygon(10% 0, 100% 0, 90% 100%, 0% 100%);
-            transition: all 0.3s;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(74, 222, 128, 0.2);
         }
         
         .breadcrumb-item:hover {
-            background: #fff;
+            background: rgba(74, 222, 128, 0.2);
+            color: #fff;
         }
 
-        .w { cursor: pointer; text-decoration: underline; color: #0f0; }
-        .w:hover { background: #0f0; color: #000; }
-        .is-keyword { background: #0f0; color: #000; font-weight: bold; text-decoration: none; padding: 0 2px;}
+        .w { cursor: pointer; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
+        .w:hover { border-bottom: 1px solid #4ade80; color: #fff; }
+        .is-keyword { color: #4ade80; font-weight: 600; text-shadow: 0 0 10px rgba(74, 222, 128, 0.4); }
         
         #connections {
             position: absolute;
@@ -154,6 +154,7 @@
             height: 100%;
             pointer-events: none;
             z-index: 1;
+            opacity: 0.4;
         }
     </style>
 </head>

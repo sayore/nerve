@@ -8,19 +8,14 @@ const nodesContainer = document.getElementById('nodes-container')!;
 const breadcrumb = document.getElementById('breadcrumb')!;
 const svgConnections = document.getElementById('connections')! as unknown as SVGSVGElement;
 
-const SQRT3 = Math.sqrt(3);
-const hexOffsets = [
-    { x: 1, y: 0 }, { x: 0.5, y: SQRT3/2 }, { x: -0.5, y: SQRT3/2 },
-    { x: -1, y: 0 }, { x: -0.5, y: -SQRT3/2 }, { x: 0.5, y: -SQRT3/2 }
-];
-
 let lockedNodes: { id: number, text: string }[] = [];
 let centralNodeEl: HTMLElement | null = null;
+let floatingNodes: { el: HTMLElement, id: number }[] = [];
 
 async function init() {
-    console.log("Nerve UI V2 Initializing...");
+    console.log("Nerve UI V3 Initializing...");
     
-    const welcomeText = "Willkommen im Nerve-Netzwerk. Wähle einen der schwebenden Artikel, um in das semantische Gewebe einzudringen. Die Schnittmenge formt deinen Pfad.";
+    const welcomeText = "Willkommen im Nerve-Netzwerk. Wähle einen der umgebenden Artikel, um in das semantische Gewebe einzudringen. Die Schnittmenge formt deinen Pfad.";
     
     centralNodeEl = document.createElement('div');
     centralNodeEl.className = 'node center';
@@ -56,7 +51,8 @@ function setupWordInteractions(container: HTMLElement) {
 }
 
 async function updateCurrentView() {
-    const activeKeywords = Array.from(centralNodeEl!.querySelectorAll('.is-keyword'))
+    if (!centralNodeEl) return;
+    const activeKeywords = Array.from(centralNodeEl.querySelectorAll('.is-keyword'))
         .map(el => el.getAttribute('data-word')!);
     
     if (activeKeywords.length > 0) {
@@ -66,49 +62,58 @@ async function updateCurrentView() {
 }
 
 async function renderFloatingNodes(matches: { id: number; score: number }[]) {
-    document.querySelectorAll('.floating').forEach(el => el.remove());
+    // Fade out and remove old floating nodes
+    floatingNodes.forEach(n => {
+        n.el.style.opacity = '0';
+        setTimeout(() => n.el.remove(), 800);
+    });
+    floatingNodes = [];
+    svgConnections.innerHTML = ''; 
 
     if (matches.length === 0) {
-        if (centralNodeEl) centralNodeEl.style.boxShadow = "0 0 50px rgba(255, 0, 0, 0.6)"; 
-        svgConnections.innerHTML = '';
+        if (centralNodeEl) centralNodeEl.style.boxShadow = "0 0 60px rgba(255, 0, 0, 0.4)"; 
         return;
     } else {
-        if (centralNodeEl) centralNodeEl.style.boxShadow = "0 0 50px rgba(0, 255, 0, 0.2)";
+        if (centralNodeEl) centralNodeEl.style.boxShadow = "0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(74, 222, 128, 0.1)";
     }
 
     const textPromises = matches.map(m => electroview.rpc.request.getArticleText({ articleId: m.id }));
     const texts = await Promise.all(textPromises);
 
-    svgConnections.innerHTML = ''; 
+    const radiusX = window.innerWidth * 0.4;
+    const radiusY = window.innerHeight * 0.35;
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
 
     matches.forEach((m, i) => {
-        const offset = hexOffsets[i % 6];
-        const dist = 480; 
-        const x = window.innerWidth / 2 + offset.x * dist;
-        const y = window.innerHeight / 2 + offset.y * dist;
+        // Distribute evenly around an ellipse
+        const angle = (i / matches.length) * Math.PI * 2 - (Math.PI / 2);
+        const x = centerX + Math.cos(angle) * radiusX;
+        const y = centerY + Math.sin(angle) * radiusY;
 
         const el = document.createElement('div');
         el.className = 'node floating';
         el.style.left = `${x}px`;
         el.style.top = `${y}px`;
-        el.style.animationDelay = `-${i}s`; 
+        el.style.animationDelay = `-${i * 1.5}s`; 
         
         const content = texts[i] || "Kein Inhalt verfügbar.";
-        const bodyText = content.length > 300 ? content.substring(0, 300) + "..." : content;
+        const bodyText = content.length > 250 ? content.substring(0, 250) + "..." : content;
 
         el.innerHTML = `
-            <div class="node-header">ARTIKEL #${m.id} | REL: ${m.score}</div>
+            <div class="node-header">ARTIKEL #${m.id} &middot; REL: ${m.score}</div>
             <div class="node-body">${bodyText}</div>
         `;
         
-        el.onclick = () => transitionToCenter(el, m.id, content);
+        el.onclick = () => transitionToCenter(m.id, content);
         
         nodesContainer.appendChild(el);
-        drawLine(window.innerWidth / 2, window.innerHeight / 2, x, y);
+        floatingNodes.push({ el, id: m.id });
+        drawLine(centerX, centerY, x, y);
     });
 }
 
-async function transitionToCenter(floatingEl: HTMLElement, articleId: number, fullText: string) {
+async function transitionToCenter(articleId: number, fullText: string) {
     const keywords = await electroview.rpc.request.getKeywordsForArticle({ articleId });
     const matches = await electroview.rpc.request.lockNode({ articleId, keywords });
     
@@ -116,53 +121,51 @@ async function transitionToCenter(floatingEl: HTMLElement, articleId: number, fu
     renderBreadcrumb();
 
     if (centralNodeEl) {
+        // Instead of removing, we smoothly update the content of the central node
         centralNodeEl.style.opacity = '0';
-        centralNodeEl.style.transform = 'translate(-50%, -50%) scale(0.5)';
-        setTimeout(() => centralNodeEl!.remove(), 800);
+        centralNodeEl.style.transform = 'translate(-50%, -50%) scale(0.95)';
+        
+        setTimeout(() => {
+            centralNodeEl!.innerHTML = `
+                <div class="node-header">ARTIKEL #${articleId}</div>
+                <div class="node-body">${formatText(fullText)}</div>
+            `;
+            setupWordInteractions(centralNodeEl!);
+            centralNodeEl!.style.opacity = '1';
+            centralNodeEl!.style.transform = 'translate(-50%, -50%) scale(1)';
+        }, 400);
     }
-
-    floatingEl.classList.remove('floating');
-    floatingEl.classList.add('center');
-    floatingEl.style.left = '50%';
-    floatingEl.style.top = '50%';
-    floatingEl.style.animation = 'none'; 
-    
-    floatingEl.innerHTML = `
-        <div class="node-header">ARTIKEL #${articleId}</div>
-        <div class="node-body">${formatText(fullText)}</div>
-    `;
-    setupWordInteractions(floatingEl);
-    
-    centralNodeEl = floatingEl;
 
     await renderFloatingNodes(matches);
 }
 
 async function unlockNode(index: number) {
     const matches = await electroview.rpc.request.unlockNode({ index });
-    lockedNodes.splice(index, 1);
+    lockedNodes.splice(index, lockedNodes.length - index); // Remove this and all subsequent nodes
     renderBreadcrumb();
 
-    if (centralNodeEl) centralNodeEl.remove();
-    
-    centralNodeEl = document.createElement('div');
-    centralNodeEl.className = 'node center';
-    
-    if (lockedNodes.length > 0) {
-        const last = lockedNodes[lockedNodes.length - 1];
-        centralNodeEl.innerHTML = `
-            <div class="node-header">ARTIKEL #${last.id}</div>
-            <div class="node-body">${formatText(last.text)}</div>
-        `;
-    } else {
-        centralNodeEl.innerHTML = `
-            <div class="node-header">NEXUS_INIT</div>
-            <div class="node-body">${formatText("Zurück im Nexus. Pfad zurückgesetzt.")}</div>
-        `;
+    if (centralNodeEl) {
+        centralNodeEl.style.opacity = '0';
+        centralNodeEl.style.transform = 'translate(-50%, -50%) scale(0.95)';
+        
+        setTimeout(() => {
+            if (lockedNodes.length > 0) {
+                const last = lockedNodes[lockedNodes.length - 1];
+                centralNodeEl!.innerHTML = `
+                    <div class="node-header">ARTIKEL #${last.id}</div>
+                    <div class="node-body">${formatText(last.text)}</div>
+                `;
+            } else {
+                centralNodeEl!.innerHTML = `
+                    <div class="node-header">NEXUS_INIT</div>
+                    <div class="node-body">${formatText("Zurück im Nexus. Pfad zurückgesetzt.")}</div>
+                `;
+            }
+            setupWordInteractions(centralNodeEl!);
+            centralNodeEl!.style.opacity = '1';
+            centralNodeEl!.style.transform = 'translate(-50%, -50%) scale(1)';
+        }, 400);
     }
-    
-    nodesContainer.appendChild(centralNodeEl);
-    setupWordInteractions(centralNodeEl);
 
     await renderFloatingNodes(matches);
 }
@@ -172,8 +175,8 @@ function renderBreadcrumb() {
     lockedNodes.forEach((n, i) => {
         const btn = document.createElement('div');
         btn.className = 'breadcrumb-item';
-        btn.innerText = `[${i}] ARTIKEL #${n.id}`;
-        btn.title = "Klicken, um diesen Knoten aus dem Pfad zu entfernen";
+        btn.innerText = `ARTIKEL #${n.id}`;
+        btn.title = "Klicken, um zu diesem Knoten zurückzukehren";
         btn.onclick = () => unlockNode(i);
         breadcrumb.appendChild(btn);
     });
@@ -185,9 +188,8 @@ function drawLine(x1: number, y1: number, x2: number, y2: number) {
     line.setAttribute("y1", y1.toString());
     line.setAttribute("x2", x2.toString());
     line.setAttribute("y2", y2.toString());
-    line.setAttribute("stroke", "rgba(0, 255, 0, 0.2)");
-    line.setAttribute("stroke-width", "2");
-    
+    line.setAttribute("stroke", "rgba(74, 222, 128, 0.15)");
+    line.setAttribute("stroke-width", "1");
     svgConnections.appendChild(line);
 }
 
