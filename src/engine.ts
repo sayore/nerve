@@ -37,8 +37,12 @@ console.log(`Loading Nerve Engine from: ${LIB_PATH}`);
 
 const lib = dlopen(LIB_PATH, {
     get_article_text: {
-        args: [FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.usize, FFIType.u32, FFIType.ptr, FFIType.usize],
-        returns: FFIType.usize
+        args: [FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.usize, FFIType.u32],
+        returns: FFIType.ptr
+    },
+    free_article_text: {
+        args: [FFIType.ptr],
+        returns: FFIType.void
     },
     process_query_sorted_unique: { 
         args: [FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.ptr], 
@@ -163,15 +167,17 @@ export const Engine = {
     getArticleText(articleId: number): string {
         if (textsMMap.length === 0 || textsIndex.length === 0) return `Article #${articleId} - No content loaded. Run seeding.`;
         
-        const len = lib.symbols.get_article_text(
+        const textPtr = lib.symbols.get_article_text(
             ptr(textsMMap), textsMMap.length, 
             ptr(textsIndex), textsIndex.length, 
-            articleId, 
-            ptr(textOutputBuffer), textOutputBuffer.length
+            articleId
         );
         
-        if (len === 0) return `Article #${articleId} - Content not found in index.`;
-        return new TextDecoder().decode(textOutputBuffer.slice(0, Number(len)));
+        if (textPtr === 0 || textPtr === null) return `Article #${articleId} - Content not found.`;
+        
+        const text = new Bun.CString(textPtr as any);
+        lib.symbols.free_article_text(textPtr);
+        return text;
     },
 
     getKeywordsForArticle(articleId: number): string[] {

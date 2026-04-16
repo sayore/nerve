@@ -1,5 +1,6 @@
 // core/src/lib.rs
 use std::fs::OpenOptions;
+use std::ffi::CString;
 
 #[no_mangle]
 pub unsafe extern "C" fn get_article_text(
@@ -8,11 +9,9 @@ pub unsafe extern "C" fn get_article_text(
     index_ptr: *const u32,
     index_len: usize,
     target_id: u32,
-    out_buf: *mut u8,
-    max_out_len: usize,
-) -> usize {
-    if mmap_ptr.is_null() || index_ptr.is_null() || out_buf.is_null() || index_len == 0 {
-        return 0;
+) -> *mut std::os::raw::c_char {
+    if mmap_ptr.is_null() || index_ptr.is_null() || index_len == 0 {
+        return std::ptr::null_mut();
     }
 
     let index = std::slice::from_raw_parts(index_ptr, index_len);
@@ -25,15 +24,30 @@ pub unsafe extern "C" fn get_article_text(
             
             if offset + len <= mmap_len {
                 let text_slice = std::slice::from_raw_parts(mmap_ptr.add(offset), len);
-                let copy_len = len.min(max_out_len);
-                std::ptr::copy_nonoverlapping(text_slice.as_ptr(), out_buf, copy_len);
-                return copy_len;
+                
+                // Return as C-String to allow safe parsing via Bun's CString handling.
+                // We use from_vec_unchecked for speed, but ensure it ends with null byte.
+                let mut vec = Vec::with_capacity(len + 1);
+                vec.extend_from_slice(text_slice);
+                vec.push(0); // Null terminator
+                
+                // CString takes ownership and we leak it to pass pointer across FFI.
+                let c_string = CString::from_vec_unchecked(vec);
+                return c_string.into_raw();
             }
             break;
         }
         i += 3;
     }
-    0
+    std::ptr::null_mut()
+}
+
+// Helper to free the leaked CString from JS after reading it
+#[no_mangle]
+pub unsafe extern "C" fn free_article_text(ptr: *mut std::os::raw::c_char) {
+    if !ptr.is_null() {
+        let _ = CString::from_raw(ptr);
+    }
 }
 
 #[no_mangle]
@@ -246,48 +260,4 @@ pub unsafe extern "C" fn process_query_linear(
         }
         i += 2;
     }
-}
-
-#[no_mangle]
-pub extern "C" fn mmap_load_database(
-    path_ptr: *const i8,
-    out_relations_ptr: *mut u32,
-    max_relations: usize,
-    out_cursor: *mut usize,
-) -> i32 {
-    if path_ptr.is_null() || out_relations_ptr.is_null() || out_cursor.is_null() { return -3; }
-    let path = unsafe { std::ffi::CStr::from_ptr(path_ptr) }.to_str().unwrap();
-    let file = match OpenOptions::new().read(true).open(path) {
-        Ok(f) => f,
-        Err(_) => return -1,
-    };
-
-    let mmap = match unsafe { memmap2::Mmap::map(&file) } {
-        Ok(m) => m,
-        Err(_) => return -2,
-    };
-
-    let data_u32 = unsafe {
-        std::slice::from_raw_parts(mmap.as_ptr() as *const u32, mmap.len() / 4)
-    };
-
-    let relations = unsafe { std::slice::from_raw_parts_mut(out_relations_ptr, max_relations) };
-    let mut cursor = 0;
-
-    let mut i = 0;
-    while i + 3 <= data_u32.len() && cursor < max_relations {
-        let op = data_u32[i];
-        let art_id = data_u32[i + 1];
-        let hash = data_u32[i + 2];
-
-        if op == 0 {
-            relations[cursor] = art_id;
-            relations[cursor + 1] = hash;
-            cursor += 2;
-        }
-        i += 3;
-    }
-
-    unsafe { *out_cursor = cursor };
-    0
 }

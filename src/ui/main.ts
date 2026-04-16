@@ -1,73 +1,67 @@
-// src/ui/main.ts
 import { Electroview } from "electrobun/view";
 import { type NerveRPCSchema } from "../types";
 
-const rpc = Electroview.defineRPC<NerveRPCSchema>({
-    handlers: {
-        requests: {},
-        messages: {}
-    }
-});
-
+const rpc = Electroview.defineRPC<NerveRPCSchema>({ handlers: { requests: {}, messages: {} } });
 const electroview = new Electroview({ rpc });
 
-console.log("Nerve Main.ts loaded");
-
 const nodesContainer = document.getElementById('nodes-container')!;
-const articleContent = document.getElementById('article-content')!;
+const breadcrumb = document.getElementById('breadcrumb')!;
 const svgConnections = document.getElementById('connections')! as unknown as SVGSVGElement;
 
-let currentArticleId = 0;
-const lockedNodes: { id: number; el: HTMLElement; x: number; y: number }[] = [];
 const SQRT3 = Math.sqrt(3);
-
 const hexOffsets = [
     { x: 1, y: 0 }, { x: 0.5, y: SQRT3/2 }, { x: -0.5, y: SQRT3/2 },
     { x: -1, y: 0 }, { x: -0.5, y: -SQRT3/2 }, { x: 0.5, y: -SQRT3/2 }
 ];
 
+let lockedNodes: { id: number, text: string }[] = [];
+let centralNodeEl: HTMLElement | null = null;
+
 async function init() {
-    console.log("Nerve UI Initializing...");
-    renderText("Willkommen im Nerve-Dungeon. Falls du keine Hexagons siehst, führe bitte './run.sh test' aus, um Testdaten zu generieren, oder klicke auf Wörter hier im Text.");
+    console.log("Nerve UI V2 Initializing...");
     
-    try {
-        const initialKeywords = ["wissen", "daten", "rust", "word_1_5"]; 
-        console.log("Fetching initial matches...");
-        const matches = await electroview.rpc.request.getInitialMatches({ keywords: initialKeywords });
-        console.log(`Found ${matches.length} initial matches.`);
-        renderFloatingNodes(matches);
-    } catch (err) {
-        console.error("Failed to fetch initial matches:", err);
-        renderText("FEHLER: Verbindung zum Backend fehlgeschlagen. Prüfe die Konsole.");
-    }
+    const welcomeText = "Willkommen im Nerve-Netzwerk. Wähle einen der schwebenden Artikel, um in das semantische Gewebe einzudringen. Die Schnittmenge formt deinen Pfad.";
+    
+    centralNodeEl = document.createElement('div');
+    centralNodeEl.className = 'node center';
+    centralNodeEl.innerHTML = `
+        <div class="node-header">NEXUS_INIT</div>
+        <div class="node-body">${formatText(welcomeText)}</div>
+    `;
+    nodesContainer.appendChild(centralNodeEl);
+    setupWordInteractions(centralNodeEl);
+
+    const initialKeywords = ["wissen", "daten", "rust", "word_1_5"];
+    const matches = await electroview.rpc.request.getInitialMatches({ keywords: initialKeywords });
+    await renderFloatingNodes(matches);
 }
 
-function renderText(text: string) {
-    articleContent.innerHTML = text.split(/\s+/).map(word => {
+function formatText(text: string) {
+    return text.split(/\s+/).map(word => {
         const clean = word.replace(/[^a-zA-Zäöüß]/g, "").toLowerCase();
         return `<span class="w" data-word="${clean}">${word}</span>`;
     }).join(' ');
+}
 
-    // Add CRUD: Create/Update keyword
-    articleContent.querySelectorAll('.w').forEach(el => {
+function setupWordInteractions(container: HTMLElement) {
+    container.querySelectorAll('.w').forEach(el => {
         el.addEventListener('click', (e) => {
             const word = (e.target as HTMLElement).getAttribute('data-word')!;
             (e.target as HTMLElement).classList.toggle('is-keyword');
-            // Log to disk via RPC
-            electroview.rpc.send.addKeyword({ articleId: currentArticleId, word });
+            const articleId = lockedNodes.length > 0 ? lockedNodes[lockedNodes.length - 1].id : 0;
+            electroview.rpc.send.addKeyword({ articleId, word });
             updateCurrentView();
         });
     });
 }
 
 async function updateCurrentView() {
-    // Collect active keywords from UI
-    const activeKeywords = Array.from(document.querySelectorAll('.is-keyword'))
+    const activeKeywords = Array.from(centralNodeEl!.querySelectorAll('.is-keyword'))
         .map(el => el.getAttribute('data-word')!);
     
     if (activeKeywords.length > 0) {
         const matches = await electroview.rpc.request.getInitialMatches({ keywords: activeKeywords });
-        renderFloatingNodes(matches);
+        await renderFloatingNodes(matches);
     }
 }
 
@@ -75,109 +69,114 @@ async function renderFloatingNodes(matches: { id: number; score: number }[]) {
     document.querySelectorAll('.floating').forEach(el => el.remove());
 
     if (matches.length === 0) {
-        articleContent.style.boxShadow = "0 0 40px rgba(255, 0, 0, 0.4)"; 
+        if (centralNodeEl) centralNodeEl.style.boxShadow = "0 0 50px rgba(255, 0, 0, 0.6)"; 
+        svgConnections.innerHTML = '';
         return;
     } else {
-        articleContent.style.boxShadow = "0 0 60px rgba(0, 0, 0, 1)";
+        if (centralNodeEl) centralNodeEl.style.boxShadow = "0 0 50px rgba(0, 255, 0, 0.2)";
     }
 
-    // Parallel fetch texts for all matches
     const textPromises = matches.map(m => electroview.rpc.request.getArticleText({ articleId: m.id }));
     const texts = await Promise.all(textPromises);
 
+    svgConnections.innerHTML = ''; 
+
     matches.forEach((m, i) => {
         const offset = hexOffsets[i % 6];
-        const dist = 420; // Increased distance for larger hexagons
-        const x = window.innerWidth / 2 + offset.x * dist - 130;
-        const y = window.innerHeight / 2 + offset.y * dist - 150;
+        const dist = 480; 
+        const x = window.innerWidth / 2 + offset.x * dist;
+        const y = window.innerHeight / 2 + offset.y * dist;
 
         const el = document.createElement('div');
         el.className = 'node floating';
         el.style.left = `${x}px`;
         el.style.top = `${y}px`;
-        el.style.transitionDelay = `${i * 0.08}s`;
+        el.style.animationDelay = `-${i}s`; 
         
         const content = texts[i] || "Kein Inhalt verfügbar.";
         const bodyText = content.length > 300 ? content.substring(0, 300) + "..." : content;
 
         el.innerHTML = `
-            <div class="node-header">ARTIKEL #${m.id}</div>
+            <div class="node-header">ARTIKEL #${m.id} | REL: ${m.score}</div>
             <div class="node-body">${bodyText}</div>
         `;
         
-        // Hover Preview (already updates central text)
-        el.onmouseenter = async () => {
-            renderText(`[VORSCHAU] Artikel #${m.id}\n\n${content}`);
-        };
-
-        el.onclick = () => lockNode(m.id, x, y);
+        el.onclick = () => transitionToCenter(el, m.id, content);
+        
         nodesContainer.appendChild(el);
+        drawLine(window.innerWidth / 2, window.innerHeight / 2, x, y);
     });
 }
 
-async function lockNode(articleId: number, startX: number, startY: number) {
-    currentArticleId = articleId;
-    
-    // 1. Get real text
-    const text = await electroview.rpc.request.getArticleText({ articleId });
-    renderText(text);
-
+async function transitionToCenter(floatingEl: HTMLElement, articleId: number, fullText: string) {
     const keywords = await electroview.rpc.request.getKeywordsForArticle({ articleId });
     const matches = await electroview.rpc.request.lockNode({ articleId, keywords });
     
-    const index = lockedNodes.length;
-    const el = document.createElement('div');
-    el.className = 'node locked';
-    
-    // Position on a dynamic path bar at the top
-    const targetX = (window.innerWidth / 2) - ((lockedNodes.length + 1) * 160 / 2) + (lockedNodes.length * 160);
-    const targetY = 100;
-    
-    el.style.left = `${startX}px`;
-    el.style.top = `${startY}px`;
-    
-    // Animate to top
-    setTimeout(() => {
-        el.style.left = `${targetX}px`;
-        el.style.top = `${targetY}px`;
-    }, 10);
+    lockedNodes.push({ id: articleId, text: fullText });
+    renderBreadcrumb();
 
-    el.innerHTML = `NODE #${articleId}`;
-    el.onclick = () => unlockNode(index);
-    nodesContainer.appendChild(el);
+    if (centralNodeEl) {
+        centralNodeEl.style.opacity = '0';
+        centralNodeEl.style.transform = 'translate(-50%, -50%) scale(0.5)';
+        setTimeout(() => centralNodeEl!.remove(), 800);
+    }
+
+    floatingEl.classList.remove('floating');
+    floatingEl.classList.add('center');
+    floatingEl.style.left = '50%';
+    floatingEl.style.top = '50%';
+    floatingEl.style.animation = 'none'; 
     
-    lockedNodes.push({ id: articleId, el, x: targetX, y: targetY });
+    floatingEl.innerHTML = `
+        <div class="node-header">ARTIKEL #${articleId}</div>
+        <div class="node-body">${formatText(fullText)}</div>
+    `;
+    setupWordInteractions(floatingEl);
     
-    drawAllConnections();
-    renderText(`Raum #${articleId} fixiert. Keywords extrahiert. Die Schnittmenge wird berechnet...`);
-    renderFloatingNodes(matches);
+    centralNodeEl = floatingEl;
+
+    await renderFloatingNodes(matches);
 }
 
 async function unlockNode(index: number) {
     const matches = await electroview.rpc.request.unlockNode({ index });
-    const removed = lockedNodes.splice(index, 1)[0];
-    removed.el.style.transform = 'scale(0) rotate(20deg)';
-    removed.el.style.opacity = '0';
-    setTimeout(() => removed.el.remove(), 500);
+    lockedNodes.splice(index, 1);
+    renderBreadcrumb();
 
-    // Reposition remaining nodes
-    lockedNodes.forEach((node, i) => {
-        const targetX = (window.innerWidth / 2) - (lockedNodes.length * 160 / 2) + (i * 160);
-        node.x = targetX;
-        node.el.style.left = `${targetX}px`;
-    });
+    if (centralNodeEl) centralNodeEl.remove();
+    
+    centralNodeEl = document.createElement('div');
+    centralNodeEl.className = 'node center';
+    
+    if (lockedNodes.length > 0) {
+        const last = lockedNodes[lockedNodes.length - 1];
+        centralNodeEl.innerHTML = `
+            <div class="node-header">ARTIKEL #${last.id}</div>
+            <div class="node-body">${formatText(last.text)}</div>
+        `;
+    } else {
+        centralNodeEl.innerHTML = `
+            <div class="node-header">NEXUS_INIT</div>
+            <div class="node-body">${formatText("Zurück im Nexus. Pfad zurückgesetzt.")}</div>
+        `;
+    }
+    
+    nodesContainer.appendChild(centralNodeEl);
+    setupWordInteractions(centralNodeEl);
 
-    drawAllConnections();
-    renderFloatingNodes(matches);
+    await renderFloatingNodes(matches);
 }
 
-function drawAllConnections() {
-    svgConnections.innerHTML = '';
-    for (let i = 1; i < lockedNodes.length; i++) {
-        const p1 = lockedNodes[i-1];
-        const p2 = lockedNodes[i];
-        drawLine(p1.x + 75, p1.y + 86, p2.x + 75, p2.y + 86);
-    }
+function renderBreadcrumb() {
+    breadcrumb.innerHTML = '';
+    lockedNodes.forEach((n, i) => {
+        const btn = document.createElement('div');
+        btn.className = 'breadcrumb-item';
+        btn.innerText = `[${i}] ARTIKEL #${n.id}`;
+        btn.title = "Klicken, um diesen Knoten aus dem Pfad zu entfernen";
+        btn.onclick = () => unlockNode(i);
+        breadcrumb.appendChild(btn);
+    });
 }
 
 function drawLine(x1: number, y1: number, x2: number, y2: number) {
@@ -186,17 +185,8 @@ function drawLine(x1: number, y1: number, x2: number, y2: number) {
     line.setAttribute("y1", y1.toString());
     line.setAttribute("x2", x2.toString());
     line.setAttribute("y2", y2.toString());
-    line.setAttribute("stroke", "#0f0");
-    line.setAttribute("stroke-width", "1");
-    line.setAttribute("stroke-dasharray", "10,5");
-    
-    const animate = document.createElementNS("http://www.w3.org/2000/svg", "animate");
-    animate.setAttribute("attributeName", "stroke-dashoffset");
-    animate.setAttribute("from", "100");
-    animate.setAttribute("to", "0");
-    animate.setAttribute("dur", "3s");
-    animate.setAttribute("repeatCount", "indefinite");
-    line.appendChild(animate);
+    line.setAttribute("stroke", "rgba(0, 255, 0, 0.2)");
+    line.setAttribute("stroke-width", "2");
     
     svgConnections.appendChild(line);
 }
