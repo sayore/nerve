@@ -5,17 +5,20 @@ use std::fs::OpenOptions;
 pub unsafe extern "C" fn get_article_text(
     mmap_ptr: *const u8,
     mmap_len: usize,
-    index_ptr: *const u32, // [ArtID, Offset, Length, ...]
+    index_ptr: *const u32,
     index_len: usize,
     target_id: u32,
     out_buf: *mut u8,
     max_out_len: usize,
 ) -> usize {
+    if mmap_ptr.is_null() || index_ptr.is_null() || out_buf.is_null() || index_len == 0 {
+        return 0;
+    }
+
     let index = std::slice::from_raw_parts(index_ptr, index_len);
     
-    // Find article in index (linear for now, simple)
     let mut i = 0;
-    while i < index_len {
+    while i + 2 < index_len {
         if index[i] == target_id {
             let offset = index[i + 1] as usize;
             let len = index[i + 2] as usize;
@@ -44,14 +47,21 @@ pub unsafe extern "C" fn process_query_sorted_unique(
     out_scores_ptr: *mut u32,
     top_results_ptr: *mut u32,
 ) {
+    if articles_ptr.is_null() || query_ptr.is_null() || out_scores_ptr.is_null() || top_results_ptr.is_null() {
+        return;
+    }
+
     let articles = std::slice::from_raw_parts(articles_ptr, articles_len);
     let queries = std::slice::from_raw_parts(query_ptr, query_len);
-    let exclude = std::slice::from_raw_parts(exclude_ptr, exclude_len);
+    let exclude = if exclude_ptr.is_null() || exclude_len == 0 {
+        &[]
+    } else {
+        std::slice::from_raw_parts(exclude_ptr, exclude_len)
+    };
     let scores = std::slice::from_raw_parts_mut(out_scores_ptr, 1_000_000);
     
     scores.fill(0);
 
-    // Binary Search on Sorted MMap
     for &q_hash in queries {
         let mut low = 0;
         let mut high = (articles_len / 2).saturating_sub(1);
@@ -77,7 +87,6 @@ pub unsafe extern "C" fn process_query_sorted_unique(
             while idx * 2 + 1 < articles_len && *articles.get_unchecked(idx * 2 + 1) == q_hash {
                 let art_id = *articles.get_unchecked(idx * 2);
                 
-                // Skip excluded articles
                 let mut is_excluded = false;
                 for &ex_id in exclude {
                     if art_id == ex_id {
@@ -103,6 +112,9 @@ pub unsafe extern "C" fn intersect_keywords(
     b_ptr: *const u32, b_len: usize,
     out_ptr: *mut u32
 ) -> usize {
+    if a_ptr.is_null() || b_ptr.is_null() || out_ptr.is_null() {
+        return 0;
+    }
     let a = std::slice::from_raw_parts(a_ptr, a_len);
     let b = std::slice::from_raw_parts(b_ptr, b_len);
     let out = std::slice::from_raw_parts_mut(out_ptr, a_len.min(b_len));
@@ -129,23 +141,26 @@ pub unsafe extern "C" fn merge_database(
     new_len: usize,
     out_mmap_ptr: *mut u32,
 ) -> usize {
-    let old_data = std::slice::from_raw_parts(old_mmap_ptr, old_len);
-    let new_data = std::slice::from_raw_parts_mut(new_data_ptr, new_len);
+    if out_mmap_ptr.is_null() { return 0; }
+    
+    let old_data = if old_mmap_ptr.is_null() || old_len == 0 { &[] } else { std::slice::from_raw_parts(old_mmap_ptr, old_len) };
+    let new_data = if new_data_ptr.is_null() || new_len == 0 { &mut [] } else { std::slice::from_raw_parts_mut(new_data_ptr, new_len) };
     let merged = std::slice::from_raw_parts_mut(out_mmap_ptr, old_len + new_len);
 
-    let mut pairs: Vec<[u32; 2]> = new_data.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
-    pairs.sort_by_key(|p| p[1]);
-    
-    for (i, p) in pairs.iter().enumerate() {
-        new_data[i * 2] = p[0];
-        new_data[i * 2 + 1] = p[1];
+    if !new_data.is_empty() {
+        let mut pairs: Vec<[u32; 2]> = new_data.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
+        pairs.sort_by_key(|p| p[1]);
+        for (i, p) in pairs.iter().enumerate() {
+            new_data[i * 2] = p[0];
+            new_data[i * 2 + 1] = p[1];
+        }
     }
 
     let mut i = 0;
     let mut j = 0;
     let mut k = 0;
     
-    while i < old_len && j < new_len {
+    while i < old_data.len() && j < new_data.len() {
         if old_data[i + 1] <= new_data[j + 1] {
             merged[k] = old_data[i];
             merged[k + 1] = old_data[i + 1];
@@ -158,9 +173,9 @@ pub unsafe extern "C" fn merge_database(
         k += 2;
     }
 
-    if i < old_len {
+    if i < old_data.len() {
         merged[k..].copy_from_slice(&old_data[i..]);
-    } else if j < new_len {
+    } else if j < new_data.len() {
         merged[k..].copy_from_slice(&new_data[j..]);
     }
 
@@ -169,6 +184,7 @@ pub unsafe extern "C" fn merge_database(
 
 #[inline(always)]
 unsafe fn find_top_3_internal(scores: &[u32], top_results_ptr: *mut u32) {
+    if top_results_ptr.is_null() { return; }
     let top_results = std::slice::from_raw_parts_mut(top_results_ptr, 6);
     let mut best = [(0u32, 0u32); 3];
 
@@ -196,8 +212,40 @@ pub unsafe extern "C" fn find_top_3_ffi(
     scores_ptr: *const u32,
     top_results_ptr: *mut u32,
 ) {
+    if scores_ptr.is_null() || top_results_ptr.is_null() { return; }
     let scores = std::slice::from_raw_parts(scores_ptr, 1_000_000);
     find_top_3_internal(scores, top_results_ptr);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn process_query_linear(
+    articles_ptr: *const u32,
+    articles_len: usize,
+    query_ptr: *const u32,
+    query_len: usize,
+    out_scores_ptr: *mut u32,
+) {
+    if articles_ptr.is_null() || query_ptr.is_null() || out_scores_ptr.is_null() || articles_len == 0 {
+        return;
+    }
+    let articles = std::slice::from_raw_parts(articles_ptr, articles_len);
+    let queries = std::slice::from_raw_parts(query_ptr, query_len);
+    let scores = std::slice::from_raw_parts_mut(out_scores_ptr, 1_000_000);
+
+    let mut i = 0;
+    while i < articles_len {
+        let art_id = *articles.get_unchecked(i) as usize;
+        let kw_hash = *articles.get_unchecked(i + 1);
+
+        for &q in queries {
+            if kw_hash == q {
+                if art_id < 1_000_000 {
+                    *scores.get_unchecked_mut(art_id) += 1;
+                }
+            }
+        }
+        i += 2;
+    }
 }
 
 #[no_mangle]
@@ -207,6 +255,7 @@ pub extern "C" fn mmap_load_database(
     max_relations: usize,
     out_cursor: *mut usize,
 ) -> i32 {
+    if path_ptr.is_null() || out_relations_ptr.is_null() || out_cursor.is_null() { return -3; }
     let path = unsafe { std::ffi::CStr::from_ptr(path_ptr) }.to_str().unwrap();
     let file = match OpenOptions::new().read(true).open(path) {
         Ok(f) => f,

@@ -66,21 +66,34 @@ let ramCursor = 0;
 const scoreBuffer = new Uint32Array(MAX_ARTICLES);
 const resultBuffer = new Uint32Array(6); 
 const textOutputBuffer = new Uint8Array(4096);
+const dummyU32 = new Uint32Array(1);
+const dummyU8 = new Uint8Array(1);
 let isSearching = false;
 
 let textsMMap = new Uint8Array(0);
 let textsIndex = new Uint32Array(0);
 
+// Keep strong references to prevent GC of underlying memory
+let __textsBuf: Buffer | null = null;
+let __idxBuf: Buffer | null = null;
+let __dbBuf: Buffer | null = null;
+
 if (existsSync(TEXT_PATH) && existsSync(TEXT_INDEX_PATH)) {
-    textsMMap = new Uint8Array(readFileSync(TEXT_PATH));
-    const idxBuf = readFileSync(TEXT_INDEX_PATH);
-    textsIndex = new Uint32Array(idxBuf.buffer, idxBuf.byteOffset, idxBuf.byteLength / 4);
+    try {
+        __textsBuf = readFileSync(TEXT_PATH);
+        textsMMap = new Uint8Array(__textsBuf.buffer, __textsBuf.byteOffset, __textsBuf.byteLength);
+
+        __idxBuf = readFileSync(TEXT_INDEX_PATH);
+        textsIndex = new Uint32Array(__idxBuf.buffer, __idxBuf.byteOffset, __idxBuf.byteLength / 4);
+    } catch (e) {
+        console.error("Failed to load text database:", e);
+    }
 }
 
 if (existsSync(DB_PATH)) {
     try {
-        const dbBuffer = readFileSync(DB_PATH);
-        mmapRelations = new Uint32Array(dbBuffer.buffer, dbBuffer.byteOffset, dbBuffer.byteLength / 4);
+        __dbBuf = readFileSync(DB_PATH);
+        mmapRelations = new Uint32Array(__dbBuf.buffer, __dbBuf.byteOffset, __dbBuf.byteLength / 4);
         mmapCursor = mmapRelations.length;
     } catch (e) {
         console.error("Failed to load sorted database:", e);
@@ -101,9 +114,9 @@ export const Engine = {
         if (isSearching) return;
         const nextMmapRelations = new Uint32Array(mmapCursor + ramCursor);
         const resultLen = lib.symbols.merge_database(
-            ptr(mmapRelations.length > 0 ? mmapRelations : new Uint32Array(1)), mmapCursor,
-            ptr(ramBuffer), ramCursor,
-            ptr(nextMmapRelations)
+            ptr(mmapRelations.length > 0 ? mmapRelations : dummyU32), mmapCursor,
+            ptr(ramBuffer.length > 0 ? ramBuffer : dummyU32), ramCursor,
+            ptr(nextMmapRelations.length > 0 ? nextMmapRelations : dummyU32)
         );
         mmapRelations = nextMmapRelations;
         mmapCursor = Number(resultLen);
@@ -113,6 +126,7 @@ export const Engine = {
     },
 
     intersect(a: Uint32Array, b: Uint32Array): Uint32Array {
+        if (a.length === 0 || b.length === 0) return new Uint32Array(0);
         const out = new Uint32Array(Math.min(a.length, b.length));
         const len = lib.symbols.intersect_keywords(ptr(a), a.length, ptr(b), b.length, ptr(out));
         return out.slice(0, Number(len));
@@ -129,9 +143,9 @@ export const Engine = {
         try {
             const excludeBuffer = new Uint32Array(exclude);
             lib.symbols.process_query_sorted_unique(
-                ptr(mmapRelations.length > 0 ? mmapRelations : new Uint32Array(1)), mmapCursor,
-                ptr(hashes), hashes.length,
-                ptr(excludeBuffer.length > 0 ? excludeBuffer : new Uint32Array(1)), excludeBuffer.length,
+                ptr(mmapRelations.length > 0 ? mmapRelations : dummyU32), mmapCursor,
+                ptr(hashes.length > 0 ? hashes : dummyU32), hashes.length,
+                ptr(excludeBuffer.length > 0 ? excludeBuffer : dummyU32), excludeBuffer.length,
                 ptr(scoreBuffer), ptr(resultBuffer)
             );
             const results = [];
@@ -147,9 +161,16 @@ export const Engine = {
     },
 
     getArticleText(articleId: number): string {
-        if (textsMMap.length === 0) return `Article #${articleId} - No content found. Run seeding.`;
-        const len = lib.symbols.get_article_text(ptr(textsMMap), textsMMap.length, ptr(textsIndex), textsIndex.length, articleId, ptr(textOutputBuffer), textOutputBuffer.length);
-        if (len === 0) return `Article #${articleId} - Content overflow or not indexed.`;
+        if (textsMMap.length === 0 || textsIndex.length === 0) return `Article #${articleId} - No content loaded. Run seeding.`;
+        
+        const len = lib.symbols.get_article_text(
+            ptr(textsMMap), textsMMap.length, 
+            ptr(textsIndex), textsIndex.length, 
+            articleId, 
+            ptr(textOutputBuffer), textOutputBuffer.length
+        );
+        
+        if (len === 0) return `Article #${articleId} - Content not found in index.`;
         return new TextDecoder().decode(textOutputBuffer.slice(0, Number(len)));
     },
 

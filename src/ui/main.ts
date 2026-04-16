@@ -71,39 +71,43 @@ async function updateCurrentView() {
     }
 }
 
-function renderFloatingNodes(matches: { id: number; score: number }[]) {
+async function renderFloatingNodes(matches: { id: number; score: number }[]) {
     document.querySelectorAll('.floating').forEach(el => el.remove());
 
     if (matches.length === 0) {
-        articleContent.style.boxShadow = "0 0 40px rgba(255, 0, 0, 0.4)"; // Semantic Dead End
+        articleContent.style.boxShadow = "0 0 40px rgba(255, 0, 0, 0.4)"; 
         return;
     } else {
-        articleContent.style.boxShadow = "0 0 50px rgba(0, 255, 0, 0.1)";
+        articleContent.style.boxShadow = "0 0 60px rgba(0, 0, 0, 1)";
     }
+
+    // Parallel fetch texts for all matches
+    const textPromises = matches.map(m => electroview.rpc.request.getArticleText({ articleId: m.id }));
+    const texts = await Promise.all(textPromises);
 
     matches.forEach((m, i) => {
         const offset = hexOffsets[i % 6];
-        const dist = 350;
-        const x = window.innerWidth / 2 + offset.x * dist - 75;
-        const y = window.innerHeight / 2 + offset.y * dist - 86;
+        const dist = 420; // Increased distance for larger hexagons
+        const x = window.innerWidth / 2 + offset.x * dist - 130;
+        const y = window.innerHeight / 2 + offset.y * dist - 150;
 
         const el = document.createElement('div');
         el.className = 'node floating';
         el.style.left = `${x}px`;
         el.style.top = `${y}px`;
-        el.style.transitionDelay = `${i * 0.1}s`;
-        el.innerHTML = `Article #${m.id}<br><small>Relevance: ${m.score}</small>`;
+        el.style.transitionDelay = `${i * 0.08}s`;
         
-        // Hover Preview
-        el.onmouseenter = async () => {
-            const preview = await electroview.rpc.request.getArticleText({ articleId: m.id });
-            const previewSnippet = preview.substring(0, 200) + "...";
-            renderText(`[PREVIEW] Article #${m.id}\n\n${previewSnippet}`);
-        };
+        const content = texts[i] || "Kein Inhalt verfügbar.";
+        const bodyText = content.length > 300 ? content.substring(0, 300) + "..." : content;
 
-        el.onmouseleave = () => {
-            // Restore current article text if no node is selected?
-            // For now, just leave it.
+        el.innerHTML = `
+            <div class="node-header">ARTIKEL #${m.id}</div>
+            <div class="node-body">${bodyText}</div>
+        `;
+        
+        // Hover Preview (already updates central text)
+        el.onmouseenter = async () => {
+            renderText(`[VORSCHAU] Artikel #${m.id}\n\n${content}`);
         };
 
         el.onclick = () => lockNode(m.id, x, y);
