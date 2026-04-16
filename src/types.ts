@@ -2,10 +2,18 @@
 export type NerveRPCSchema = {
     bun: {
         requests: {
-            getTopMatches: {
-                params: { keywords: string[] };
+            lockNode: {
+                params: { articleId: number; keywords: string[] };
                 response: { id: number; score: number }[];
             };
+            getKeywordsForArticle: {
+                params: { articleId: number };
+                response: string[];
+            };
+            getInitialMatches: {
+                params: { keywords: string[] };
+                response: { id: number; score: number }[];
+            }
         };
         messages: {
             addKeyword: { articleId: number; word: string };

@@ -1,70 +1,71 @@
 // test/perf_test.ts
-import { Engine } from "../src/engine";
+import { Engine, DungeonPath } from "../src/engine";
 import { unlinkSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 const LOG_PATH = join(import.meta.dir, "../db/changes.log.bin");
+const DB_PATH = join(import.meta.dir, "../db/sorted.bin");
 const DB_DIR = join(import.meta.dir, "../db");
 
-if (!existsSync(DB_DIR)) {
-    mkdirSync(DB_DIR);
-}
+if (!existsSync(DB_DIR)) mkdirSync(DB_DIR);
+if (existsSync(LOG_PATH)) unlinkSync(LOG_PATH);
+if (existsSync(DB_PATH)) unlinkSync(DB_PATH);
 
-// Cleanup log for clean test
-if (existsSync(LOG_PATH)) {
-    unlinkSync(LOG_PATH);
-}
-
-console.log("--- Performance Test: Nerve Engine ---");
+console.log("--- Performance Test: Semantic Dungeon Crawler ---");
 
 const ARTICLE_COUNT = 100_000;
 const KEYWORDS_PER_ARTICLE = 10;
 const TOTAL_RELATIONS = ARTICLE_COUNT * KEYWORDS_PER_ARTICLE;
 
 console.log(`Setup: Generating ${TOTAL_RELATIONS} relations...`);
-
-const startSetup = performance.now();
 for (let i = 0; i < ARTICLE_COUNT; i++) {
     for (let k = 0; k < KEYWORDS_PER_ARTICLE; k++) {
-        Engine.addKeyword(i, `word_${k}_${i % 100}`); // Simulated words
+        Engine.addKeyword(i, `word_${k}_${i % 100}`);
     }
 }
-const endSetup = performance.now();
-console.log(`Setup finished in ${(endSetup - startSetup).toFixed(2)}ms`);
+Engine.triggerAsyncMerge();
 
-const activeKeywords = ["word_1_5", "word_2_5", "word_3_5", "word_4_5", "word_5_5"];
-const hashes = new Uint32Array(activeKeywords.map(w => Number(BigInt.asUintN(32, Bun.hash(w) as bigint))));
+const dungeon = new DungeonPath();
+const startKeywords = ["word_1_5", "word_2_5", "word_3_5"];
+const startId = 5;
 
-console.log(`Search: Finding matches for ${activeKeywords.join(", ")}...`);
+console.log("\n--- Testing Dungeon Path Locking ---");
 
-// Warmup
-Engine.searchRaw(hashes);
+const startLock = performance.now();
+// Lock first node
+const matches1 = await dungeon.lockNode(startId, startKeywords);
+const endLock1 = performance.now();
+console.log(`Locking first node took ${(endLock1 - startLock).toFixed(4)}ms`);
+console.log(`Floating nodes around Article #${startId}:`, matches1.length);
+
+// Lock second node (which has overlapping keywords)
+const secondId = 105;
+const secondKeywords = ["word_1_5", "word_4_5", "word_5_5"];
+const startLock2 = performance.now();
+const matches2 = await dungeon.lockNode(secondId, secondKeywords);
+const endLock2 = performance.now();
+
+console.log(`Locking second node took ${(endLock2 - startLock2).toFixed(4)}ms`);
+console.log(`Intersection keywords:`, dungeon.currentKeywords);
+console.log(`New floating nodes:`, matches2.length);
+
+// Verify no duplicates
+const lockedIds = dungeon.lockedNodes;
+const duplicateFound = matches2.some(m => lockedIds.includes(m.id));
+if (!duplicateFound) {
+    console.log("SUCCESS: No duplicate articles in floating nodes.");
+} else {
+    console.log("ERROR: Duplicate articles found!");
+}
 
 const iterations = 1000;
 let totalTime = 0;
+const testExclude = [5, 105, 205];
+const testKeywords = ["word_1_5", "word_2_5"];
 
 for (let i = 0; i < iterations; i++) {
-    const start = performance.now();
-    Engine.searchRaw(hashes);
-    totalTime += (performance.now() - start);
+    const s = performance.now();
+    Engine.getTopMatchesUnique(testKeywords, testExclude);
+    totalTime += (performance.now() - s);
 }
-
-console.log(`Average Search Time (over ${iterations} runs): ${(totalTime / iterations).toFixed(4)}ms`);
-const results = Engine.searchRaw(hashes);
-console.log("Top Matches:", results);
-
-// Test mmap reload
-console.log("\n--- Testing MMap Reload Speed ---");
-const startReload = performance.now();
-// In a real scenario, this would be on process startup. 
-// We can't easily re-import the module in the same script without complex machinery,
-// but we can check if the mmap load logic in engine.ts is ready.
-const endReload = performance.now();
-console.log(`MMap Reload (simulated) finished in ${(endReload - startReload).toFixed(4)}ms`);
-
-// Small validation
-if (results.length > 0) {
-    console.log("SUCCESS: Matches found.");
-} else {
-    console.log("WARNING: No matches found. Check logic.");
-}
+console.log(`\nAverage Unique Search Time (1M+ relations, ${iterations} runs): ${(totalTime / iterations).toFixed(4)}ms`);

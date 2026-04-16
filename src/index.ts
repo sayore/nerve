@@ -1,19 +1,26 @@
 // src/index.ts
 import { BrowserWindow, BrowserView } from "electrobun/bun";
-import { Engine } from "./engine";
+import { Engine, DungeonPath } from "./engine";
 import { type NerveRPCSchema } from "./types";
-import { join } from "node:path";
+
+const dungeon = new DungeonPath();
 
 const win = new BrowserWindow({
     title: "Nerve",
-    width: 1000,
-    height: 800,
+    width: 1280,
+    height: 900,
     url: "views://main/index.html",
     rpc: BrowserView.defineRPC<NerveRPCSchema>({
         handlers: {
             requests: {
-                getTopMatches: ({ keywords }) => {
-                    return Engine.getTopMatches(keywords);
+                lockNode: async ({ articleId, keywords }) => {
+                    return dungeon.lockNode(articleId, keywords);
+                },
+                getKeywordsForArticle: async ({ articleId }) => {
+                    return Engine.getKeywordsForArticle(articleId);
+                },
+                getInitialMatches: async ({ keywords }) => {
+                    return Engine.getTopMatchesUnique(keywords, []);
                 }
             },
             messages: {
@@ -25,4 +32,4 @@ const win = new BrowserWindow({
     })
 });
 
-console.log("Nerve Engine started.");
+console.log("Nerve Engine started (Dungeon Mode).");
