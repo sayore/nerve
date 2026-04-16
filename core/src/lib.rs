@@ -2,6 +2,38 @@
 use std::fs::OpenOptions;
 
 #[no_mangle]
+pub unsafe extern "C" fn get_article_text(
+    mmap_ptr: *const u8,
+    mmap_len: usize,
+    index_ptr: *const u32, // [ArtID, Offset, Length, ...]
+    index_len: usize,
+    target_id: u32,
+    out_buf: *mut u8,
+    max_out_len: usize,
+) -> usize {
+    let index = std::slice::from_raw_parts(index_ptr, index_len);
+    
+    // Find article in index (linear for now, simple)
+    let mut i = 0;
+    while i < index_len {
+        if index[i] == target_id {
+            let offset = index[i + 1] as usize;
+            let len = index[i + 2] as usize;
+            
+            if offset + len <= mmap_len {
+                let text_slice = std::slice::from_raw_parts(mmap_ptr.add(offset), len);
+                let copy_len = len.min(max_out_len);
+                std::ptr::copy_nonoverlapping(text_slice.as_ptr(), out_buf, copy_len);
+                return copy_len;
+            }
+            break;
+        }
+        i += 3;
+    }
+    0
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn process_query_sorted_unique(
     articles_ptr: *const u32,
     articles_len: usize,

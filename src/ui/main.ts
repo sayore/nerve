@@ -11,6 +11,8 @@ const rpc = Electroview.defineRPC<NerveRPCSchema>({
 
 const electroview = new Electroview({ rpc });
 
+console.log("Nerve Main.ts loaded");
+
 const nodesContainer = document.getElementById('nodes-container')!;
 const articleContent = document.getElementById('article-content')!;
 const svgConnections = document.getElementById('connections')! as unknown as SVGSVGElement;
@@ -25,10 +27,19 @@ const hexOffsets = [
 ];
 
 async function init() {
-    renderText("Willkommen im Nerve-Dungeon. Klicke auf schwebende Hexagons, um tiefer in die Wissens-Schnittmenge einzudringen. Nutze 'Locked Nodes', um den Pfad zu verengen oder durch Klick zu löschen.");
-    const initialKeywords = ["wissen", "daten", "rust"]; 
-    const matches = await electroview.rpc.request.getInitialMatches({ keywords: initialKeywords });
-    renderFloatingNodes(matches);
+    console.log("Nerve UI Initializing...");
+    renderText("Willkommen im Nerve-Dungeon. Falls du keine Hexagons siehst, führe bitte './run.sh test' aus, um Testdaten zu generieren, oder klicke auf Wörter hier im Text.");
+    
+    try {
+        const initialKeywords = ["wissen", "daten", "rust", "word_1_5"]; 
+        console.log("Fetching initial matches...");
+        const matches = await electroview.rpc.request.getInitialMatches({ keywords: initialKeywords });
+        console.log(`Found ${matches.length} initial matches.`);
+        renderFloatingNodes(matches);
+    } catch (err) {
+        console.error("Failed to fetch initial matches:", err);
+        renderText("FEHLER: Verbindung zum Backend fehlgeschlagen. Prüfe die Konsole.");
+    }
 }
 
 function renderText(text: string) {
@@ -63,6 +74,13 @@ async function updateCurrentView() {
 function renderFloatingNodes(matches: { id: number; score: number }[]) {
     document.querySelectorAll('.floating').forEach(el => el.remove());
 
+    if (matches.length === 0) {
+        articleContent.style.boxShadow = "0 0 40px rgba(255, 0, 0, 0.4)"; // Semantic Dead End
+        return;
+    } else {
+        articleContent.style.boxShadow = "0 0 50px rgba(0, 255, 0, 0.1)";
+    }
+
     matches.forEach((m, i) => {
         const offset = hexOffsets[i % 6];
         const dist = 350;
@@ -75,6 +93,19 @@ function renderFloatingNodes(matches: { id: number; score: number }[]) {
         el.style.top = `${y}px`;
         el.style.transitionDelay = `${i * 0.1}s`;
         el.innerHTML = `Article #${m.id}<br><small>Relevance: ${m.score}</small>`;
+        
+        // Hover Preview
+        el.onmouseenter = async () => {
+            const preview = await electroview.rpc.request.getArticleText({ articleId: m.id });
+            const previewSnippet = preview.substring(0, 200) + "...";
+            renderText(`[PREVIEW] Article #${m.id}\n\n${previewSnippet}`);
+        };
+
+        el.onmouseleave = () => {
+            // Restore current article text if no node is selected?
+            // For now, just leave it.
+        };
+
         el.onclick = () => lockNode(m.id, x, y);
         nodesContainer.appendChild(el);
     });
@@ -82,6 +113,11 @@ function renderFloatingNodes(matches: { id: number; score: number }[]) {
 
 async function lockNode(articleId: number, startX: number, startY: number) {
     currentArticleId = articleId;
+    
+    // 1. Get real text
+    const text = await electroview.rpc.request.getArticleText({ articleId });
+    renderText(text);
+
     const keywords = await electroview.rpc.request.getKeywordsForArticle({ articleId });
     const matches = await electroview.rpc.request.lockNode({ articleId, keywords });
     

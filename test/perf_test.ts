@@ -18,11 +18,29 @@ const KEYWORDS_PER_ARTICLE = 10;
 const TOTAL_RELATIONS = ARTICLE_COUNT * KEYWORDS_PER_ARTICLE;
 
 console.log(`Setup: Generating ${TOTAL_RELATIONS} relations...`);
+const texts: string[] = [];
+const textIndex: number[] = [];
+let currentOffset = 0;
+
 for (let i = 0; i < ARTICLE_COUNT; i++) {
     for (let k = 0; k < KEYWORDS_PER_ARTICLE; k++) {
         Engine.addKeyword(i, `word_${k}_${i % 100}`);
     }
+    
+    // Generate dummy text
+    const content = `Dies ist der Inhalt von Artikel #${i}. Er enthält wichtige Informationen über das Wissens-Netzwerk Nerve. Hier sind einige Keywords: word_1_${i%100}, word_2_${i%100}.`;
+    const buf = Buffer.from(content);
+    texts.push(content);
+    textIndex.push(i, currentOffset, buf.length);
+    currentOffset += buf.length;
 }
+
+// Persist texts and index
+const TEXT_PATH = join(DB_DIR, "texts.bin");
+const TEXT_INDEX_PATH = join(DB_DIR, "texts_index.bin");
+writeFileSync(TEXT_PATH, Buffer.from(texts.join('')));
+writeFileSync(TEXT_INDEX_PATH, new Uint32Array(textIndex));
+
 Engine.triggerAsyncMerge();
 
 const dungeon = new DungeonPath();

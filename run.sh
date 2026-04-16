@@ -15,5 +15,7 @@ if [ "$1" == "test" ]; then
     bun test/perf_test.ts
 else
     echo "--- Starting Nerve Engine (Electrobun Dev) ---"
+    # Disable GPU acceleration to fix common WebKitGTK rendering issues on Linux
+    export WEBKIT_DISABLE_COMPOSITING_MODE=1
     bunx electrobun dev
 fi

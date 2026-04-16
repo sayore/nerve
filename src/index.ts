@@ -22,8 +22,12 @@ const win = new BrowserWindow({
                 getKeywordsForArticle: async ({ articleId }) => {
                     return Engine.getKeywordsForArticle(articleId);
                 },
+                getArticleText: async ({ articleId }) => {
+                    return Engine.getArticleText(articleId);
+                },
                 getInitialMatches: async ({ keywords }) => {
-                    return Engine.getTopMatchesUnique(keywords, []);
+                    const searchTerms = keywords.length > 0 ? keywords : ["word_1_5", "word_2_5"];
+                    return Engine.getTopMatchesUnique(searchTerms, []);
                 }
             },
             messages: {

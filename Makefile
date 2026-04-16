@@ -8,6 +8,9 @@ build-core:
 test-perf:
 	@./run.sh test
 
+import:
+	@bun src/import.ts
+
 clean:
 	rm -rf core/target
 	rm -rf db/*.bin

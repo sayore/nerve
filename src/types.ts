@@ -14,6 +14,10 @@ export type NerveRPCSchema = {
                 params: { articleId: number };
                 response: string[];
             };
+            getArticleText: {
+                params: { articleId: number };
+                response: string;
+            };
             getInitialMatches: {
                 params: { keywords: string[] };
                 response: { id: number; score: number }[];

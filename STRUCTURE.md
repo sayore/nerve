@@ -17,3 +17,44 @@
 - `Makefile`: Build automation.
 - `run.sh`: Brutalist automation script for build and dev.
 - `package.json`: Project configuration and dependencies.
+
+
+
+
+Geld
+  -> Modern Money Theorie
+  -> Entwicklung Tax für Reiche https://www.youtube.com/shorts/mL796eqCQko
+Soziales
+  -> Wohnungsmangel
+  -> Leerstehende Wohnung/Häuser/..
+
+Kategorie > Sub Kategorie > Konkreter Text > Enthält [[Keywords]]
+
+Keywords gehören in Gruppen
+
+Keywords pointen auf Texte die in einer Gruppe sind
+
+Gruppen auch. 
+
+Keywords == Gruppe?
+
+Keyword in "gruppen" > Konkreter Text zu keyword (in gruppe) > Keywords
+vs
+Keyword n:m Text, Text m:n Keyword
+
+Text mit keywords..
+
+dynamisches info scrolling by selection of keywords, best match = next text ?
+
+
+Sozial, Wohnung, Leerstand, Protestierbar, Aktiv..
+Regex match auf n:m ist ineffizient..
+binary tree? 3 layer 4kb match für string match sollte alles abdecken.. das meiste.. 
+
+suchinput = best matching keywords (fzf like, buchstaben zählen in reihenfolge) = no binary tree.. double stored?
+
+alikness reconciliation?
+
+keywords uniqueness. but closeness? not related to term though..
+
+hm
