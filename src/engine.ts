@@ -3,9 +3,51 @@ import { ptr, dlopen, FFIType } from "bun:ffi";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const LIB_PATH = join(import.meta.dir, "../core/target/release/libsearch.so");
-const LOG_PATH = join(import.meta.dir, "../db/changes.log.bin");
-const DB_PATH = join(import.meta.dir, "../db/sorted.bin");
+const getLibPath = () => {
+    // 1. Try project root directly (for perf tests)
+    const directPath = join(process.cwd(), "core/target/release/libsearch.so");
+    if (existsSync(directPath)) return directPath;
+
+    // 2. Try from Electrobun bin folder (5 levels up to project root)
+    const devPath = join(process.cwd(), "../../../../../", "core/target/release/libsearch.so");
+    if (existsSync(devPath)) return devPath;
+
+    // 3. Try relative path (bundled in app bundle)
+    const bundledPath = join(import.meta.dir, "../core/target/release/libsearch.so");
+    if (existsSync(bundledPath)) return bundledPath;
+
+    const bundledPath2 = join(import.meta.dir, "../libsearch.so");
+    if (existsSync(bundledPath2)) return bundledPath2;
+
+    // 4. Try current working directory
+    const cwdPath = join(process.cwd(), "libsearch.so");
+    if (existsSync(cwdPath)) return cwdPath;
+
+    // Final fallback
+    return join(import.meta.dir, "../core/target/release/libsearch.so");
+};
+
+const getFilePath = (filename: string) => {
+    // 1. Try project root directly (for perf tests)
+    const directPath = join(process.cwd(), filename);
+    if (existsSync(directPath)) return directPath;
+
+    // 2. Try original project root (5 levels up from bin/ in dev)
+    const devPath = join(process.cwd(), "../../../../../", filename);
+    if (existsSync(devPath)) return devPath;
+
+    // 3. Try bundled app structure
+    const bundlePath = join(process.cwd(), "../../../", filename);
+    if (existsSync(bundlePath)) return bundlePath;
+
+    return join(process.cwd(), filename);
+};
+
+const LIB_PATH = getLibPath();
+const LOG_PATH = getFilePath("db/changes.log.bin");
+const DB_PATH = getFilePath("db/sorted.bin");
+
+console.log(`Loading Nerve Engine from: ${LIB_PATH}`);
 
 const lib = dlopen(LIB_PATH, {
     process_query_sorted_unique: { 

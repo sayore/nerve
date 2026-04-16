@@ -14,6 +14,6 @@ if [ "$1" == "test" ]; then
     echo "--- Running Performance Benchmark ---"
     bun test/perf_test.ts
 else
-    echo "--- Starting Nerve Engine ---"
-    bun src/index.ts
+    echo "--- Starting Nerve Engine (Electrobun Dev) ---"
+    bunx electrobun dev
 fi
