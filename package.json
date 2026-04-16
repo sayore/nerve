@@ -1,0 +1,17 @@
+{
+  "name": "nerve",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "build:core": "cd core && cargo build --release",
+    "test:perf": "bun test/perf_test.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
