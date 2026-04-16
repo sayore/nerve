@@ -1,6 +1,6 @@
 // test/perf_test.ts
 import { Engine, DungeonPath } from "../src/engine";
-import { unlinkSync, existsSync, mkdirSync } from "node:fs";
+import { unlinkSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const LOG_PATH = join(import.meta.dir, "../db/changes.log.bin");

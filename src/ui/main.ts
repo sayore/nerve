@@ -7,28 +7,45 @@ const electroview = new Electroview({ rpc });
 const nodesContainer = document.getElementById('nodes-container')!;
 const breadcrumb = document.getElementById('breadcrumb')!;
 const svgConnections = document.getElementById('connections')! as unknown as SVGSVGElement;
+const world = document.getElementById('world')!;
+const searchBtn = document.getElementById('search-btn')!;
+const searchInput = document.getElementById('search-input')! as HTMLInputElement;
 
-let lockedNodes: { id: number, text: string }[] = [];
+// Spatial Coordinates
+let camX = 0;
+let camY = 0;
+
+interface NodeData {
+    id: number;
+    text: string;
+    x: number;
+    y: number;
+    el: HTMLElement;
+}
+
+let lockedNodes: NodeData[] = [];
 let centralNodeEl: HTMLElement | null = null;
-let floatingNodes: { el: HTMLElement, id: number }[] = [];
+let floatingNodes: { el: HTMLElement, id: number, x: number, y: number }[] = [];
 
 async function init() {
-    console.log("Nerve UI V3 Initializing...");
+    console.log("Nerve Spatial UI Initializing...");
     
-    const welcomeText = "Willkommen im Nerve-Netzwerk. Wähle einen der umgebenden Artikel, um in das semantische Gewebe einzudringen. Die Schnittmenge formt deinen Pfad.";
-    
-    centralNodeEl = document.createElement('div');
-    centralNodeEl.className = 'node center';
-    centralNodeEl.innerHTML = `
-        <div class="node-header">NEXUS_INIT</div>
-        <div class="node-body">${formatText(welcomeText)}</div>
-    `;
-    nodesContainer.appendChild(centralNodeEl);
-    setupWordInteractions(centralNodeEl);
+    // Global Search
+    searchBtn.onclick = () => performGlobalSearch(searchInput.value);
+    searchInput.onkeypress = (e) => { if (e.key === 'Enter') performGlobalSearch(searchInput.value); };
 
-    const initialKeywords = ["wissen", "daten", "rust", "word_1_5"];
+    const welcomeText = "Willkommen im Nerve-Netzwerk. Nutze die Suche oben rechts oder klicke auf einen Knoten, um den Pfad zu beginnen.";
+    spawnCenterNode(0, welcomeText, 0, 0);
+
+    const initialKeywords = ["wissen", "daten", "rust"];
     const matches = await electroview.rpc.request.getInitialMatches({ keywords: initialKeywords });
-    await renderFloatingNodes(matches);
+    await renderFloatingNodes(matches, 0, 0);
+}
+
+function moveCamera(x: number, y: number) {
+    camX = x;
+    camY = y;
+    world.style.transform = `translate(calc(50vw - ${camX}px), calc(50vh - ${camY}px))`;
 }
 
 function formatText(text: string) {
@@ -57,18 +74,59 @@ async function updateCurrentView() {
     
     if (activeKeywords.length > 0) {
         const matches = await electroview.rpc.request.getInitialMatches({ keywords: activeKeywords });
-        await renderFloatingNodes(matches);
+        const cx = lockedNodes.length > 0 ? lockedNodes[lockedNodes.length-1].x : 0;
+        const cy = lockedNodes.length > 0 ? lockedNodes[lockedNodes.length-1].y : 0;
+        await renderFloatingNodes(matches, cx, cy);
     }
 }
 
-async function renderFloatingNodes(matches: { id: number; score: number }[]) {
-    // Fade out and remove old floating nodes
+async function performGlobalSearch(query: string) {
+    if (!query.trim()) return;
+    const keywords = query.toLowerCase().split(/\s+/);
+    
+    // Unlock everything to reset path
+    if (lockedNodes.length > 0) {
+        await electroview.rpc.request.unlockNode({ index: 0 });
+    }
+    
+    lockedNodes.forEach(n => n.el.remove());
+    lockedNodes = [];
+    renderBreadcrumb();
+    svgConnections.innerHTML = '';
+    
+    // Spawn new center
+    camX += 1000; // Jump right for new search to keep history visual context (if any)
+    const newX = camX;
+    const newY = camY;
+    
+    if (centralNodeEl) centralNodeEl.remove();
+    spawnCenterNode(-1, `Globale Suche: ${keywords.join(', ')}`, newX, newY);
+    
+    const matches = await electroview.rpc.request.getInitialMatches({ keywords });
+    await renderFloatingNodes(matches, newX, newY);
+}
+
+function spawnCenterNode(id: number, text: string, x: number, y: number) {
+    centralNodeEl = document.createElement('div');
+    centralNodeEl.className = 'node center';
+    centralNodeEl.style.left = `${x}px`;
+    centralNodeEl.style.top = `${y}px`;
+    centralNodeEl.innerHTML = `
+        <div class="node-header">${id === 0 ? 'NEXUS_INIT' : id === -1 ? 'SEARCH_NODE' : 'ARTIKEL #' + id}</div>
+        <div class="node-body">${formatText(text)}</div>
+    `;
+    nodesContainer.appendChild(centralNodeEl);
+    setupWordInteractions(centralNodeEl);
+    moveCamera(x, y);
+}
+
+async function renderFloatingNodes(matches: { id: number; score: number }[], cx: number, cy: number) {
     floatingNodes.forEach(n => {
         n.el.style.opacity = '0';
         setTimeout(() => n.el.remove(), 800);
     });
     floatingNodes = [];
-    svgConnections.innerHTML = ''; 
+    drawAllConnections(); 
 
     if (matches.length === 0) {
         if (centralNodeEl) centralNodeEl.style.boxShadow = "0 0 60px rgba(255, 0, 0, 0.4)"; 
@@ -80,16 +138,13 @@ async function renderFloatingNodes(matches: { id: number; score: number }[]) {
     const textPromises = matches.map(m => electroview.rpc.request.getArticleText({ articleId: m.id }));
     const texts = await Promise.all(textPromises);
 
-    const radiusX = window.innerWidth * 0.4;
-    const radiusY = window.innerHeight * 0.35;
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
+    const radiusX = 650;
+    const radiusY = 500;
 
     matches.forEach((m, i) => {
-        // Distribute evenly around an ellipse
         const angle = (i / matches.length) * Math.PI * 2 - (Math.PI / 2);
-        const x = centerX + Math.cos(angle) * radiusX;
-        const y = centerY + Math.sin(angle) * radiusY;
+        const x = cx + Math.cos(angle) * radiusX;
+        const y = cy + Math.sin(angle) * radiusY;
 
         const el = document.createElement('div');
         el.className = 'node floating';
@@ -105,69 +160,93 @@ async function renderFloatingNodes(matches: { id: number; score: number }[]) {
             <div class="node-body">${bodyText}</div>
         `;
         
-        el.onclick = () => transitionToCenter(m.id, content);
+        el.onclick = () => transitionToCenter(m.id, content, x, y);
         
         nodesContainer.appendChild(el);
-        floatingNodes.push({ el, id: m.id });
-        drawLine(centerX, centerY, x, y);
+        floatingNodes.push({ el, id: m.id, x, y });
+        drawLine(cx, cy, x, y, false);
     });
 }
 
-async function transitionToCenter(articleId: number, fullText: string) {
+async function transitionToCenter(articleId: number, fullText: string, targetX: number, targetY: number) {
+    // 1. Convert current center to history
+    if (centralNodeEl) {
+        const oldId = lockedNodes.length > 0 ? lockedNodes[lockedNodes.length-1].id : 0;
+        centralNodeEl.classList.remove('center');
+        centralNodeEl.classList.add('history');
+        centralNodeEl.innerHTML = `<div class="node-header">ARTIKEL #${oldId}</div>`;
+        centralNodeEl.onclick = () => unlockNode(lockedNodes.length - 1);
+        
+        if (lockedNodes.length === 0) {
+            // First step from Nexus
+            lockedNodes.push({ id: oldId, text: "", x: centralNodeEl.offsetLeft, y: centralNodeEl.offsetTop, el: centralNodeEl });
+        }
+    }
+
+    // 2. Lock logic
     const keywords = await electroview.rpc.request.getKeywordsForArticle({ articleId });
     const matches = await electroview.rpc.request.lockNode({ articleId, keywords });
     
-    lockedNodes.push({ id: articleId, text: fullText });
-    renderBreadcrumb();
+    // 3. Move camera to new node
+    moveCamera(targetX, targetY);
 
-    if (centralNodeEl) {
-        // Instead of removing, we smoothly update the content of the central node
-        centralNodeEl.style.opacity = '0';
-        centralNodeEl.style.transform = 'translate(-50%, -50%) scale(0.95)';
+    // 4. Transform clicked floating node
+    const clickedNode = floatingNodes.find(n => n.id === articleId);
+    if (clickedNode) {
+        clickedNode.el.classList.remove('floating');
+        clickedNode.el.classList.add('center');
+        clickedNode.el.style.animation = 'none'; 
         
         setTimeout(() => {
-            centralNodeEl!.innerHTML = `
+            clickedNode.el.innerHTML = `
                 <div class="node-header">ARTIKEL #${articleId}</div>
                 <div class="node-body">${formatText(fullText)}</div>
             `;
-            setupWordInteractions(centralNodeEl!);
-            centralNodeEl!.style.opacity = '1';
-            centralNodeEl!.style.transform = 'translate(-50%, -50%) scale(1)';
+            setupWordInteractions(clickedNode.el);
         }, 400);
+
+        centralNodeEl = clickedNode.el;
+        lockedNodes.push({ id: articleId, text: fullText, x: targetX, y: targetY, el: clickedNode.el });
     }
 
-    await renderFloatingNodes(matches);
+    renderBreadcrumb();
+    await renderFloatingNodes(matches, targetX, targetY);
 }
 
 async function unlockNode(index: number) {
+    if (index < 0 || index >= lockedNodes.length) return;
+    
     const matches = await electroview.rpc.request.unlockNode({ index });
-    lockedNodes.splice(index, lockedNodes.length - index); // Remove this and all subsequent nodes
+    
+    // Remove nodes that are ahead of this index
+    const removed = lockedNodes.splice(index + 1);
+    removed.forEach(n => {
+        n.el.style.opacity = '0';
+        setTimeout(() => n.el.remove(), 800);
+    });
+
     renderBreadcrumb();
 
-    if (centralNodeEl) {
+    const targetNode = lockedNodes[index];
+    
+    if (centralNodeEl && centralNodeEl !== targetNode.el) {
         centralNodeEl.style.opacity = '0';
-        centralNodeEl.style.transform = 'translate(-50%, -50%) scale(0.95)';
-        
-        setTimeout(() => {
-            if (lockedNodes.length > 0) {
-                const last = lockedNodes[lockedNodes.length - 1];
-                centralNodeEl!.innerHTML = `
-                    <div class="node-header">ARTIKEL #${last.id}</div>
-                    <div class="node-body">${formatText(last.text)}</div>
-                `;
-            } else {
-                centralNodeEl!.innerHTML = `
-                    <div class="node-header">NEXUS_INIT</div>
-                    <div class="node-body">${formatText("Zurück im Nexus. Pfad zurückgesetzt.")}</div>
-                `;
-            }
-            setupWordInteractions(centralNodeEl!);
-            centralNodeEl!.style.opacity = '1';
-            centralNodeEl!.style.transform = 'translate(-50%, -50%) scale(1)';
-        }, 400);
+        setTimeout(() => centralNodeEl!.remove(), 800);
     }
+    
+    // Restore history node to center
+    targetNode.el.classList.remove('history');
+    targetNode.el.classList.add('center');
+    targetNode.el.onclick = null;
+    targetNode.el.innerHTML = `
+        <div class="node-header">ARTIKEL #${targetNode.id}</div>
+        <div class="node-body">${formatText(targetNode.text || "Nexus Core")}</div>
+    `;
+    setupWordInteractions(targetNode.el);
+    centralNodeEl = targetNode.el;
 
-    await renderFloatingNodes(matches);
+    moveCamera(targetNode.x, targetNode.y);
+    await renderFloatingNodes(matches, targetNode.x, targetNode.y);
 }
 
 function renderBreadcrumb() {
@@ -182,14 +261,30 @@ function renderBreadcrumb() {
     });
 }
 
-function drawLine(x1: number, y1: number, x2: number, y2: number) {
+function drawAllConnections() {
+    svgConnections.innerHTML = '';
+    // Draw solid history paths
+    for (let i = 1; i < lockedNodes.length; i++) {
+        drawLine(lockedNodes[i-1].x, lockedNodes[i-1].y, lockedNodes[i].x, lockedNodes[i].y, true);
+    }
+}
+
+function drawLine(x1: number, y1: number, x2: number, y2: number, isHistory: boolean) {
     const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
     line.setAttribute("x1", x1.toString());
     line.setAttribute("y1", y1.toString());
     line.setAttribute("x2", x2.toString());
     line.setAttribute("y2", y2.toString());
-    line.setAttribute("stroke", "rgba(74, 222, 128, 0.15)");
-    line.setAttribute("stroke-width", "1");
+    
+    if (isHistory) {
+        line.setAttribute("stroke", "rgba(74, 222, 128, 0.5)");
+        line.setAttribute("stroke-width", "3");
+    } else {
+        line.setAttribute("stroke", "rgba(74, 222, 128, 0.15)");
+        line.setAttribute("stroke-width", "1");
+        line.setAttribute("stroke-dasharray", "10,5");
+    }
+    
     svgConnections.appendChild(line);
 }
 

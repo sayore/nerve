@@ -20,9 +20,35 @@
             height: 100%;
         }
 
+        /* The infinite canvas */
+        #world {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            transition: transform 1.2s cubic-bezier(0.25, 1, 0.5, 1);
+            transform-origin: 0 0;
+            will-change: transform;
+        }
+
+        #grid {
+            position: absolute;
+            top: -20000px;
+            left: -20000px;
+            width: 40000px;
+            height: 40000px;
+            background-image: 
+                linear-gradient(rgba(74, 222, 128, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(74, 222, 128, 0.05) 1px, transparent 1px);
+            background-size: 80px 80px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
         .node {
             position: absolute;
-            transition: all 0.9s cubic-bezier(0.25, 1, 0.5, 1);
+            transition: all 0.8s cubic-bezier(0.19, 1, 0.22, 1);
             box-sizing: border-box;
             background: linear-gradient(145deg, rgba(15, 35, 15, 0.4) 0%, rgba(5, 15, 5, 0.8) 100%);
             border-radius: 12px;
@@ -35,8 +61,6 @@
         .node.center {
             width: 650px;
             height: 400px;
-            left: 50%;
-            top: 50%;
             z-index: 50;
             display: flex;
             flex-direction: column;
@@ -47,6 +71,34 @@
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(0, 255, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1);
             cursor: default;
             color: #e0ffe0;
+        }
+
+        /* History Node: The Trail */
+        .node.history {
+            width: 250px;
+            height: 120px;
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+            padding: 15px 25px;
+            font-size: 0.8rem;
+            background: rgba(10, 25, 10, 0.4);
+            border: 1px solid rgba(74, 222, 128, 0.2);
+            cursor: pointer;
+            opacity: 0.5;
+            overflow: hidden;
+            box-shadow: none;
+        }
+        
+        .node.history:hover {
+            opacity: 0.9;
+            background: rgba(20, 45, 20, 0.8);
+            border: 1px solid rgba(74, 222, 128, 0.6);
+            transform: translate(-50%, -50%) scale(1.05);
+        }
+        
+        .node.history .node-body {
+            display: none; /* Hide full text in history */
         }
 
         /* Elongated floating background nodes */
@@ -104,7 +156,7 @@
         .center .node-body {
             mask-image: none; 
             overflow-y: auto;
-            scrollbar-width: none; /* Hide scrollbar for cleaner look */
+            scrollbar-width: none; 
         }
 
         @keyframes float {
@@ -122,7 +174,7 @@
             gap: 8px;
             z-index: 200;
             flex-wrap: wrap;
-            max-width: 80%;
+            max-width: 60%;
         }
         
         .breadcrumb-item {
@@ -142,6 +194,59 @@
             color: #fff;
         }
 
+        /* Global Search Bar */
+        #search-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 300;
+            display: flex;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(74, 222, 128, 0.4);
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(74, 222, 128, 0.1);
+            backdrop-filter: blur(5px);
+            transition: all 0.3s;
+        }
+
+        #search-container:focus-within {
+            border-color: #4ade80;
+            box-shadow: 0 0 30px rgba(74, 222, 128, 0.3);
+        }
+
+        #search-input {
+            background: transparent;
+            border: none;
+            color: #fff;
+            padding: 10px 15px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            width: 250px;
+            outline: none;
+        }
+
+        #search-input::placeholder {
+            color: rgba(138, 191, 138, 0.5);
+        }
+
+        #search-btn {
+            background: rgba(74, 222, 128, 0.1);
+            border: none;
+            border-left: 1px solid rgba(74, 222, 128, 0.4);
+            color: #4ade80;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-weight: bold;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+
+        #search-btn:hover {
+            background: #4ade80;
+            color: #000;
+        }
+
         .w { cursor: pointer; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
         .w:hover { border-bottom: 1px solid #4ade80; color: #fff; }
         .is-keyword { color: #4ade80; font-weight: 600; text-shadow: 0 0 10px rgba(74, 222, 128, 0.4); }
@@ -155,16 +260,24 @@
             pointer-events: none;
             z-index: 1;
             opacity: 0.4;
+            overflow: visible; /* CRITICAL for infinite canvas */
         }
     </style>
 </head>
 <body>
     <div id="breadcrumb"></div>
+    <div id="search-container">
+        <input type="text" id="search-input" placeholder="Suche im Nexus..." autocomplete="off">
+        <button id="search-btn">SCAN</button>
+    </div>
     <div id="viewport">
-        <div style="position:fixed; bottom:10px; left:10px; font-size:0.7rem; opacity:0.3; color:#0f0; z-index: 200;">NERVE_v0.2.0_ARCH_STABLE</div>
-        <svg id="connections"></svg>
-        <div id="nodes-container">
-            <!-- Nodes (Center + Floating) -->
+        <div style="position:fixed; bottom:10px; left:10px; font-size:0.7rem; opacity:0.3; color:#0f0; z-index: 200;">NERVE_v0.3.0_ARCH_SPATIAL</div>
+        <div id="world">
+            <div id="grid"></div>
+            <svg id="connections"></svg>
+            <div id="nodes-container">
+                <!-- Nodes -->
+            </div>
         </div>
     </div>
     <script src="main.ts" type="module"></script>
