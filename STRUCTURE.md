@@ -3,7 +3,7 @@
 - `core/`: Rust implementation for SIMD-accelerated keyword scoring.
   - `src/lib.rs`: FFI-exposed ranking function.
 - `db/`: Storage for the binary Write-Ahead-Log.
-  - `changes.log.bin`: Append-only log of keyword assignments.
+  - `changes.log.bin`: Append-only log of keyword assignments. Memory-mapped for high-performance loading and persistence.
 - `src/`: Bun main process and logic.
   - `engine.ts`: Core logic, FFI wrapper, and database management.
   - `index.ts`: Electrobun entry point and window setup.

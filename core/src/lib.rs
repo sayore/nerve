@@ -1,4 +1,5 @@
 // core/src/lib.rs
+use std::fs::OpenOptions;
 
 #[no_mangle]
 pub extern "C" fn process_query(
@@ -77,4 +78,48 @@ pub extern "C" fn process_query(
         top_results[i * 2] = best[i].0;
         top_results[i * 2 + 1] = best[i].1;
     }
+}
+
+// Memory mapping functions for high-speed persistence
+#[no_mangle]
+pub extern "C" fn mmap_load_database(
+    path_ptr: *const i8,
+    out_relations_ptr: *mut u32,
+    max_relations: usize,
+    out_cursor: *mut usize,
+) -> i32 {
+    let path = unsafe { std::ffi::CStr::from_ptr(path_ptr) }.to_str().unwrap();
+    let file = match OpenOptions::new().read(true).open(path) {
+        Ok(f) => f,
+        Err(_) => return -1,
+    };
+
+    let mmap = match unsafe { memmap2::Mmap::map(&file) } {
+        Ok(m) => m,
+        Err(_) => return -2,
+    };
+
+    let data_u32 = unsafe {
+        std::slice::from_raw_parts(mmap.as_ptr() as *const u32, mmap.len() / 4)
+    };
+
+    let relations = unsafe { std::slice::from_raw_parts_mut(out_relations_ptr, max_relations) };
+    let mut cursor = 0;
+
+    let mut i = 0;
+    while i + 3 <= data_u32.len() && cursor < max_relations {
+        let op = data_u32[i];
+        let art_id = data_u32[i + 1];
+        let hash = data_u32[i + 2];
+
+        if op == 0 { // Insert/Add
+            relations[cursor] = art_id;
+            relations[cursor + 1] = hash;
+            cursor += 2;
+        }
+        i += 3;
+    }
+
+    unsafe { *out_cursor = cursor };
+    0
 }

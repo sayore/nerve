@@ -1,6 +1,6 @@
 // src/engine.ts
 import { ptr, dlopen, FFIType } from "bun:ffi";
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const LIB_PATH = join(import.meta.dir, "../core/target/release/libsearch.so");
@@ -18,6 +18,15 @@ const lib = dlopen(LIB_PATH, {
         ], 
         returns: FFIType.void 
     },
+    mmap_load_database: {
+        args: [
+            FFIType.ptr,   // path_ptr
+            FFIType.ptr,   // out_relations_ptr
+            FFIType.usize, // max_relations
+            FFIType.ptr    // out_cursor
+        ],
+        returns: FFIType.i32
+    }
 });
 
 const MAX_ARTICLES = 1_000_000;
@@ -26,21 +35,25 @@ const MAX_RELATIONS = 2_000_000;
 const relations = new Uint32Array(MAX_RELATIONS); // [ArtID, Hash, ArtID, Hash...]
 const scoreBuffer = new Uint32Array(new SharedArrayBuffer(MAX_ARTICLES * 4));
 const resultBuffer = new Uint32Array(new SharedArrayBuffer(6 * 4)); // Top 3 (ID + Score)
+const cursorBuffer = new BigUint64Array(1); // To receive the cursor from Rust
+
 let relCursor = 0;
 
-// Init: Load from log if exists
+// Init: Use Rust's mmap loader for instant startup
 if (existsSync(LOG_PATH)) {
-    const logBuffer = readFileSync(LOG_PATH);
-    const logView = new Uint32Array(logBuffer.buffer, logBuffer.byteOffset, logBuffer.byteLength / 4);
-    for (let i = 0; i < logView.length; i += 3) {
-        const op = logView[i];
-        const articleId = logView[i+1];
-        const hash = logView[i+2];
-        
-        if (op === 0) { // Add
-            relations[relCursor++] = articleId;
-            relations[relCursor++] = hash;
-        }
+    const pathBuf = Buffer.from(LOG_PATH + "\0");
+    const result = lib.symbols.mmap_load_database(
+        ptr(pathBuf),
+        ptr(relations),
+        MAX_RELATIONS,
+        ptr(cursorBuffer)
+    );
+    
+    if (result === 0) {
+        relCursor = Number(cursorBuffer[0]);
+        console.log(`Database loaded via mmap. Relations: ${relCursor / 2}`);
+    } else {
+        console.error(`Failed to load database via mmap: ${result}`);
     }
 }
 
