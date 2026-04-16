@@ -1,21 +1,16 @@
-# Makefile for Nerve
+# Nerve Makefile
 
-all: build-core build-ui
+all: build-core
 
 build-core:
-	cd core && cargo build --release
+	@./run.sh
 
-build-ui:
-	# Hier könnten zusätzliche Build-Schritte für das UI stehen (z.B. Vite, etc.)
-	# Aber für dieses Projekt nutzen wir Vanilla TS/HTML direkt.
-	@echo "UI build not required (using vanilla TS/HTML)"
+test-perf:
+	@./run.sh test
 
 clean:
 	rm -rf core/target
 	rm -rf db/*.bin
 	rm -rf out
 
-test-perf:
-	bun test/perf_test.ts
-
-.PHONY: all build-core build-ui clean test-perf
+.PHONY: all build-core test-perf clean

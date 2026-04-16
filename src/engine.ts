@@ -1,22 +1,49 @@
 // src/engine.ts
 import { ptr, dlopen, FFIType } from "bun:ffi";
-import { appendFileSync, existsSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const LIB_PATH = join(import.meta.dir, "../core/target/release/libsearch.so");
 const LOG_PATH = join(import.meta.dir, "../db/changes.log.bin");
+const DB_PATH = join(import.meta.dir, "../db/sorted.bin");
 
 const lib = dlopen(LIB_PATH, {
-    process_query: { 
+    process_query_sorted: { 
         args: [
             FFIType.ptr,   // articles_ptr
             FFIType.usize, // articles_len
             FFIType.ptr,   // query_ptr
             FFIType.usize, // query_len
             FFIType.ptr,   // out_scores_ptr
-            FFIType.ptr    // top_results_ptr
         ], 
         returns: FFIType.void 
+    },
+    process_query_linear: {
+        args: [
+            FFIType.ptr,   // articles_ptr
+            FFIType.usize, // articles_len
+            FFIType.ptr,   // query_ptr
+            FFIType.usize, // query_len
+            FFIType.ptr,   // out_scores_ptr
+        ],
+        returns: FFIType.void
+    },
+    find_top_3_ffi: {
+        args: [
+            FFIType.ptr, // scores_ptr
+            FFIType.ptr  // top_results_ptr
+        ],
+        returns: FFIType.void
+    },
+    merge_database: {
+        args: [
+            FFIType.ptr,   // old_mmap_ptr
+            FFIType.usize, // old_len
+            FFIType.ptr,   // new_data_ptr
+            FFIType.usize, // new_len
+            FFIType.ptr    // out_mmap_ptr
+        ],
+        returns: FFIType.usize
     },
     mmap_load_database: {
         args: [
@@ -30,43 +57,97 @@ const lib = dlopen(LIB_PATH, {
 });
 
 const MAX_ARTICLES = 1_000_000;
-const MAX_RELATIONS = 2_000_000;
+const MAX_RELATIONS = 100_000_000; // Increased scale
+const MAX_RAM_BUFFER = 100_000; // 50k relations
 
-const relations = new Uint32Array(MAX_RELATIONS); // [ArtID, Hash, ArtID, Hash...]
+let mmapRelations = new Uint32Array(0);
+let mmapCursor = 0;
+const ramBuffer = new Uint32Array(MAX_RAM_BUFFER);
+let ramCursor = 0;
+
 const scoreBuffer = new Uint32Array(new SharedArrayBuffer(MAX_ARTICLES * 4));
-const resultBuffer = new Uint32Array(new SharedArrayBuffer(6 * 4)); // Top 3 (ID + Score)
-const cursorBuffer = new BigUint64Array(1); // To receive the cursor from Rust
+const resultBuffer = new Uint32Array(new SharedArrayBuffer(6 * 4)); 
+const cursorBuffer = new BigUint64Array(1);
 
-let relCursor = 0;
+// Init: Load sorted database if exists
+if (existsSync(DB_PATH)) {
+    const dbBuffer = readFileSync(DB_PATH);
+    mmapRelations = new Uint32Array(dbBuffer.buffer);
+    mmapCursor = mmapRelations.length;
+    console.log(`Sorted Database loaded. Relations: ${mmapCursor / 2}`);
+}
 
-// Init: Use Rust's mmap loader for instant startup
+// Also load changes log into RAM buffer (unsorted)
 if (existsSync(LOG_PATH)) {
-    const pathBuf = Buffer.from(LOG_PATH + "\0");
-    const result = lib.symbols.mmap_load_database(
-        ptr(pathBuf),
-        ptr(relations),
-        MAX_RELATIONS,
-        ptr(cursorBuffer)
-    );
-    
-    if (result === 0) {
-        relCursor = Number(cursorBuffer[0]);
-        console.log(`Database loaded via mmap. Relations: ${relCursor / 2}`);
-    } else {
-        console.error(`Failed to load database via mmap: ${result}`);
+    const logBuffer = readFileSync(LOG_PATH);
+    const logView = new Uint32Array(logBuffer.buffer, logBuffer.byteOffset, logBuffer.byteLength / 4);
+    for (let i = 0; i < logView.length; i += 3) {
+        if (logView[i] === 0) { // Add
+            ramBuffer[ramCursor++] = logView[i+1];
+            ramBuffer[ramCursor++] = logView[i+2];
+        }
     }
+    console.log(`Changes log loaded into RAM. Relations: ${ramCursor / 2}`);
 }
 
 export const Engine = {
     addKeyword(articleId: number, word: string) {
         const hash = Number(BigInt.asUintN(32, Bun.hash(word) as bigint));
         
-        relations[relCursor++] = articleId;
-        relations[relCursor++] = hash;
+        ramBuffer[ramCursor++] = articleId;
+        ramBuffer[ramCursor++] = hash;
 
-        // Passives binäres Logging (OpCode 0 = Add)
+        // Passives binäres Logging
         const entry = new Uint32Array([0, articleId, hash]);
         appendFileSync(LOG_PATH, Buffer.from(entry.buffer));
+
+        if (ramCursor >= MAX_RAM_BUFFER) {
+            this.triggerAsyncMerge();
+        }
+    },
+
+    triggerAsyncMerge() {
+        console.log("Brutalist Merge: Optimizing Database...");
+        
+        const newTotalLen = mmapCursor + ramCursor;
+        const nextMmapRelations = new Uint32Array(newTotalLen);
+        
+        let resultLen = 0;
+        if (mmapCursor > 0) {
+            resultLen = lib.symbols.merge_database(
+                ptr(mmapRelations), mmapCursor,
+                ptr(ramBuffer), ramCursor,
+                ptr(nextMmapRelations)
+            );
+        } else {
+            // If empty, just sort and copy the RAM buffer
+            // We can still call merge_database with an empty old buffer 
+            // if we are careful, but let's just do it cleanly.
+            // Wait, we need to sort it. Let's just use merge_database with 
+            // a small dummy buffer OR handle it in Rust.
+            // Actually, we can just pass a small non-empty buffer if we want to 
+            // keep the Rust code simple, OR fix Rust.
+            // Let's just fix the JS part to not call FFI with empty ptr.
+            
+            // To be brutalist, we can just pass ptr(new Uint32Array(1)) and len 0
+            resultLen = lib.symbols.merge_database(
+                ptr(new Uint32Array(1)), 0,
+                ptr(ramBuffer), ramCursor,
+                ptr(nextMmapRelations)
+            );
+        }
+
+        // Atomic swap & Persistence
+        mmapRelations = nextMmapRelations;
+        mmapCursor = Number(resultLen);
+        ramCursor = 0;
+
+        // Persist sorted database
+        writeFileSync(DB_PATH, Buffer.from(mmapRelations.buffer));
+        // Clear log after successful merge
+        writeFileSync(LOG_PATH, Buffer.from([]));
+        
+        console.log(`Merge complete. Total relations: ${mmapCursor / 2}`);
     },
 
     getTopMatches(activeKeywords: string[]) {
@@ -75,10 +156,24 @@ export const Engine = {
     },
 
     searchRaw(hashes: Uint32Array) {
-        lib.symbols.process_query(
-            ptr(relations), relCursor,
+        // 1. Search Sorted MMap (O(log n))
+        lib.symbols.process_query_sorted(
+            ptr(mmapRelations), mmapCursor,
             ptr(hashes), hashes.length,
-            ptr(scoreBuffer), ptr(resultBuffer)
+            ptr(scoreBuffer)
+        );
+
+        // 2. Accumulate Search from RAM Buffer (O(small_n))
+        lib.symbols.process_query_linear(
+            ptr(ramBuffer), ramCursor,
+            ptr(hashes), hashes.length,
+            ptr(scoreBuffer)
+        );
+
+        // 3. Final selection including the accumulated RAM buffer scores
+        lib.symbols.find_top_3_ffi(
+            ptr(scoreBuffer),
+            ptr(resultBuffer)
         );
 
         const results = [];

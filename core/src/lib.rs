@@ -2,65 +2,110 @@
 use std::fs::OpenOptions;
 
 #[no_mangle]
-pub extern "C" fn process_query(
+pub unsafe extern "C" fn process_query_sorted(
     articles_ptr: *const u32,
     articles_len: usize,
     query_ptr: *const u32,
     query_len: usize,
     out_scores_ptr: *mut u32,
-    top_results_ptr: *mut u32,
 ) {
-    let articles = unsafe { std::slice::from_raw_parts(articles_ptr, articles_len) };
-    let queries = unsafe { std::slice::from_raw_parts(query_ptr, query_len) };
-    let scores = unsafe { std::slice::from_raw_parts_mut(out_scores_ptr, 1_000_000) };
-    let top_results = unsafe { std::slice::from_raw_parts_mut(top_results_ptr, 6) };
-
+    let articles = std::slice::from_raw_parts(articles_ptr, articles_len);
+    let queries = std::slice::from_raw_parts(query_ptr, query_len);
+    let scores = std::slice::from_raw_parts_mut(out_scores_ptr, 1_000_000);
+    
     scores.fill(0);
 
-    // Optimized Inner Loop
-    let mut i = 0;
-    
-    // Copy queries to stack to allow better unrolling
-    let mut q_arr = [0u32; 8];
-    let q_count = query_len.min(8);
-    for j in 0..q_count {
-        q_arr[j] = queries[j];
-    }
-    let queries_fixed = &q_arr[..q_count];
+    // Binary Search on Sorted MMap
+    for &q_hash in queries {
+        let mut low = 0;
+        let mut high = (articles_len / 2).saturating_sub(1);
+        let mut start_idx = None;
 
-    while i + 8 <= articles_len {
-        let art_id1 = unsafe { *articles.get_unchecked(i) } as usize;
-        let kw_hash1 = unsafe { *articles.get_unchecked(i + 1) };
-        let art_id2 = unsafe { *articles.get_unchecked(i + 2) } as usize;
-        let kw_hash2 = unsafe { *articles.get_unchecked(i + 3) };
-        let art_id3 = unsafe { *articles.get_unchecked(i + 4) } as usize;
-        let kw_hash3 = unsafe { *articles.get_unchecked(i + 5) };
-        let art_id4 = unsafe { *articles.get_unchecked(i + 6) } as usize;
-        let kw_hash4 = unsafe { *articles.get_unchecked(i + 7) };
+        while low <= high {
+            let mid = (low + high) / 2;
+            let val = *articles.get_unchecked(mid * 2 + 1);
 
-        for &q in queries_fixed {
-            if kw_hash1 == q { unsafe { *scores.get_unchecked_mut(art_id1) += 1; } }
-            if kw_hash2 == q { unsafe { *scores.get_unchecked_mut(art_id2) += 1; } }
-            if kw_hash3 == q { unsafe { *scores.get_unchecked_mut(art_id3) += 1; } }
-            if kw_hash4 == q { unsafe { *scores.get_unchecked_mut(art_id4) += 1; } }
-        }
-        i += 8;
-    }
-
-    // Tail
-    while i < articles_len {
-        let art_id = unsafe { *articles.get_unchecked(i) } as usize;
-        let kw_hash = unsafe { *articles.get_unchecked(i + 1) };
-        for &q in queries_fixed {
-            if kw_hash == q {
-                unsafe { *scores.get_unchecked_mut(art_id) += 1; }
+            if val < q_hash {
+                low = mid + 1;
+            } else if val > q_hash {
+                if mid == 0 { break; }
+                high = mid - 1;
+            } else {
+                start_idx = Some(mid);
+                if mid == 0 { break; }
+                high = mid - 1; // Find the first occurrence
             }
         }
-        i += 2;
+
+        if let Some(mut idx) = start_idx {
+            while idx * 2 + 1 < articles_len && *articles.get_unchecked(idx * 2 + 1) == q_hash {
+                let art_id = *articles.get_unchecked(idx * 2) as usize;
+                if art_id < 1_000_000 {
+                    *scores.get_unchecked_mut(art_id) += 1;
+                }
+                idx += 1;
+            }
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn merge_database(
+    old_mmap_ptr: *const u32,
+    old_len: usize,
+    new_data_ptr: *mut u32, // RAM-Buffer
+    new_len: usize,
+    out_mmap_ptr: *mut u32, // New sorted MMap file
+) -> usize {
+    let old_data = std::slice::from_raw_parts(old_mmap_ptr, old_len);
+    let new_data = std::slice::from_raw_parts_mut(new_data_ptr, new_len);
+    let merged = std::slice::from_raw_parts_mut(out_mmap_ptr, old_len + new_len);
+
+    // 1. Sort RAM-Buffer before merge
+    // We need to sort [ArtID, Hash] pairs by Hash.
+    let mut pairs: Vec<[u32; 2]> = new_data.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
+    pairs.sort_by_key(|p| p[1]);
+    
+    // Copy sorted pairs back to new_data for the merge
+    for (i, p) in pairs.iter().enumerate() {
+        new_data[i * 2] = p[0];
+        new_data[i * 2 + 1] = p[1];
     }
 
-    // Find Top 3 (O(n) pass)
-    let mut best = [(0u32, 0u32); 3];
+    // 2. Two-Way Merge (Linear Pass)
+    let mut i = 0; // Old index
+    let mut j = 0; // New index
+    let mut k = 0; // Target index
+    
+    while i < old_len && j < new_len {
+        if old_data[i + 1] <= new_data[j + 1] {
+            merged[k] = old_data[i];
+            merged[k + 1] = old_data[i + 1];
+            i += 2;
+        } else {
+            merged[k] = new_data[j];
+            merged[k + 1] = new_data[j + 1];
+            j += 2;
+        }
+        k += 2;
+    }
+
+    // Copy remainder
+    if i < old_len {
+        merged[k..].copy_from_slice(&old_data[i..]);
+    } else if j < new_len {
+        merged[k..].copy_from_slice(&new_data[j..]);
+    }
+
+    old_len + new_len
+}
+
+// Internal helper for top 3 selection
+#[inline(always)]
+unsafe fn find_top_3(scores: &[u32], top_results_ptr: *mut u32) {
+    let top_results = std::slice::from_raw_parts_mut(top_results_ptr, 6);
+    let mut best = [(0u32, 0u32); 3]; // (ID, Score)
+
     for (id, &score) in scores.iter().enumerate() {
         if score > best[0].1 {
             best[2] = best[1];
@@ -78,9 +123,50 @@ pub extern "C" fn process_query(
         top_results[i * 2] = best[i].0;
         top_results[i * 2 + 1] = best[i].1;
     }
-}
+    }
 
-// Memory mapping functions for high-speed persistence
+    #[no_mangle]
+    pub unsafe extern "C" fn find_top_3_ffi(
+    scores_ptr: *const u32,
+    top_results_ptr: *mut u32,
+    ) {
+    let scores = std::slice::from_raw_parts(scores_ptr, 1_000_000);
+    find_top_3(scores, top_results_ptr);
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn process_query_linear(
+
+    articles_ptr: *const u32,
+    articles_len: usize,
+    query_ptr: *const u32,
+    query_len: usize,
+    out_scores_ptr: *mut u32,
+    ) {
+    let articles = std::slice::from_raw_parts(articles_ptr, articles_len);
+    let queries = std::slice::from_raw_parts(query_ptr, query_len);
+    let scores = std::slice::from_raw_parts_mut(out_scores_ptr, 1_000_000);
+
+    // Note: We DO NOT reset scores here, because this is called AFTER process_query_sorted
+    // to accumulate scores from the RAM buffer.
+
+    let mut i = 0;
+    while i < articles_len {
+        let art_id = *articles.get_unchecked(i) as usize;
+        let kw_hash = *articles.get_unchecked(i + 1);
+
+        for &q in queries {
+            if kw_hash == q {
+                if art_id < 1_000_000 {
+                    *scores.get_unchecked_mut(art_id) += 1;
+                }
+            }
+        }
+        i += 2;
+    }
+    }
+
+    // Keeping mmap_load_database for initial setup and background file operations
 #[no_mangle]
 pub extern "C" fn mmap_load_database(
     path_ptr: *const i8,
