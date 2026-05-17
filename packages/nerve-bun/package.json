@@ -1,0 +1,12 @@
+{
+  "name": "nerve-bun",
+  "version": "1.0.0",
+  "module": "src/engine.ts",
+  "type": "module",
+  "dependencies": {
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^25.6.0"
+  }
+}

@@ -1,6 +1,8 @@
 // core/src/lib.rs
-use std::fs::OpenOptions;
 use std::ffi::CString;
+
+/// Must match JS `Uint32Array` length passed as `out_scores_ptr` (see nexus-engine search).
+const SCORE_SLAB_LEN: usize = 2_097_152;
 
 #[no_mangle]
 pub unsafe extern "C" fn get_article_text(
@@ -60,6 +62,7 @@ pub unsafe extern "C" fn process_query_sorted_unique(
     exclude_len: usize,
     out_scores_ptr: *mut u32,
     top_results_ptr: *mut u32,
+    top_k: usize,
 ) {
     if articles_ptr.is_null() || query_ptr.is_null() || out_scores_ptr.is_null() || top_results_ptr.is_null() {
         return;
@@ -72,8 +75,8 @@ pub unsafe extern "C" fn process_query_sorted_unique(
     } else {
         std::slice::from_raw_parts(exclude_ptr, exclude_len)
     };
-    let scores = std::slice::from_raw_parts_mut(out_scores_ptr, 1_000_000);
-    
+    let scores = std::slice::from_raw_parts_mut(out_scores_ptr, SCORE_SLAB_LEN);
+
     scores.fill(0);
 
     for &q_hash in queries {
@@ -109,7 +112,7 @@ pub unsafe extern "C" fn process_query_sorted_unique(
                     }
                 }
 
-                if !is_excluded && art_id < 1_000_000 {
+                if !is_excluded && (art_id as usize) < SCORE_SLAB_LEN {
                     *scores.get_unchecked_mut(art_id as usize) += 1;
                 }
                 idx += 1;
@@ -117,7 +120,7 @@ pub unsafe extern "C" fn process_query_sorted_unique(
         }
     }
 
-    find_top_3_internal(scores, top_results_ptr);
+    find_top_k_internal(scores, top_results_ptr, top_k);
 }
 
 #[no_mangle]
@@ -197,27 +200,39 @@ pub unsafe extern "C" fn merge_database(
 }
 
 #[inline(always)]
-unsafe fn find_top_3_internal(scores: &[u32], top_results_ptr: *mut u32) {
-    if top_results_ptr.is_null() { return; }
-    let top_results = std::slice::from_raw_parts_mut(top_results_ptr, 6);
-    let mut best = [(0u32, 0u32); 3];
+unsafe fn find_top_k_internal(scores: &[u32], top_results_ptr: *mut u32, k: usize) {
+    if top_results_ptr.is_null() || k == 0 {
+        return;
+    }
+    let top_results = std::slice::from_raw_parts_mut(top_results_ptr, k * 2);
+    let mut top: Vec<(u32, u32)> = Vec::with_capacity(k);
 
     for (id, &score) in scores.iter().enumerate() {
-        if score > best[0].1 {
-            best[2] = best[1];
-            best[1] = best[0];
-            best[0] = (id as u32, score);
-        } else if score > best[1].1 {
-            best[2] = best[1];
-            best[1] = (id as u32, score);
-        } else if score > best[2].1 {
-            best[2] = (id as u32, score);
+        if score == 0 {
+            continue;
+        }
+        let id = id as u32;
+        if top.len() < k {
+            top.push((score, id));
+            if top.len() == k {
+                top.sort_by(|a, b| b.0.cmp(&a.0));
+            }
+        } else if score > top[k - 1].0 {
+            top[k - 1] = (score, id);
+            top.sort_by(|a, b| b.0.cmp(&a.0));
         }
     }
 
-    for i in 0..3 {
-        top_results[i * 2] = best[i].0;
-        top_results[i * 2 + 1] = best[i].1;
+    top.sort_by(|a, b| b.0.cmp(&a.0));
+
+    for i in 0..k {
+        if i < top.len() {
+            top_results[i * 2] = top[i].1;
+            top_results[i * 2 + 1] = top[i].0;
+        } else {
+            top_results[i * 2] = 0;
+            top_results[i * 2 + 1] = 0;
+        }
     }
 }
 
@@ -226,9 +241,11 @@ pub unsafe extern "C" fn find_top_3_ffi(
     scores_ptr: *const u32,
     top_results_ptr: *mut u32,
 ) {
-    if scores_ptr.is_null() || top_results_ptr.is_null() { return; }
-    let scores = std::slice::from_raw_parts(scores_ptr, 1_000_000);
-    find_top_3_internal(scores, top_results_ptr);
+    if scores_ptr.is_null() || top_results_ptr.is_null() {
+        return;
+    }
+    let scores = std::slice::from_raw_parts(scores_ptr, SCORE_SLAB_LEN);
+    find_top_k_internal(scores, top_results_ptr, 3);
 }
 
 #[no_mangle]
@@ -244,7 +261,7 @@ pub unsafe extern "C" fn process_query_linear(
     }
     let articles = std::slice::from_raw_parts(articles_ptr, articles_len);
     let queries = std::slice::from_raw_parts(query_ptr, query_len);
-    let scores = std::slice::from_raw_parts_mut(out_scores_ptr, 1_000_000);
+    let scores = std::slice::from_raw_parts_mut(out_scores_ptr, SCORE_SLAB_LEN);
 
     let mut i = 0;
     while i < articles_len {
@@ -253,7 +270,7 @@ pub unsafe extern "C" fn process_query_linear(
 
         for &q in queries {
             if kw_hash == q {
-                if art_id < 1_000_000 {
+                if art_id < SCORE_SLAB_LEN {
                     *scores.get_unchecked_mut(art_id) += 1;
                 }
             }

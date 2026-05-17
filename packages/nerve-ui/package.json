@@ -1,0 +1,18 @@
+{
+  "name": "nerve-ui",
+  "version": "1.0.0",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bunx electrobun dev"
+  },
+  "dependencies": {
+    "nerve-bun": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^25.6.0",
+    "electrobun": "^1.16.0"
+  }
+}

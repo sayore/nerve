@@ -1,5 +1,5 @@
 import { Electroview } from "electrobun/view";
-import { type NerveRPCSchema } from "../types";
+import { type NerveRPCSchema } from "nerve-bun";
 
 const rpc = Electroview.defineRPC<NerveRPCSchema>({ handlers: { requests: {}, messages: {} } });
 const electroview = new Electroview({ rpc });

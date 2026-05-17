@@ -1,5 +1,5 @@
 // src/import.ts
-import { Engine } from "./engine";
+import { Engine } from "nerve-bun";
 import { readdirSync, readFileSync, writeFileSync, appendFileSync, renameSync, existsSync } from "node:fs";
 import { join } from "node:path";
 

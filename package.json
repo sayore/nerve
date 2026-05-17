@@ -1,19 +1,15 @@
 {
-  "name": "nerve",
-  "module": "src/index.ts",
-  "type": "module",
+  "name": "nerve-workspace",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "start": "bunx electrobun dev",
-    "build:core": "cd core && cargo build --release",
+    "build:core": "cd packages/nerve-core && cargo build --release",
+    "start": "bun run --cwd packages/nerve-ui start",
     "test:perf": "bun test/perf_test.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/node": "^25.6.0",
-    "electrobun": "^1.16.0"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.0.0"
   }
 }

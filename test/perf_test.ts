@@ -1,5 +1,5 @@
 // test/perf_test.ts
-import { Engine, DungeonPath } from "../src/engine";
+import { Engine, DungeonPath } from "../packages/nerve-bun/src/engine";
 import { unlinkSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 

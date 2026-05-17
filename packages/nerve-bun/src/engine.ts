@@ -4,17 +4,17 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { join } from "node:path";
 
 const getLibPath = () => {
-    const directPath = join(process.cwd(), "core/target/release/libsearch.so");
+    const directPath = join(process.cwd(), "packages/nerve-core/target/release/libnerve_core.so");
     if (existsSync(directPath)) return directPath;
-    const devPath = join(process.cwd(), "../../../../", "core/target/release/libsearch.so");
+    const devPath = join(process.cwd(), "../../../../", "packages/nerve-core/target/release/libnerve_core.so");
     if (existsSync(devPath)) return devPath;
-    const bundledPath = join(import.meta.dir, "../core/target/release/libsearch.so");
+    const bundledPath = join(import.meta.dir, "../../nerve-core/target/release/libnerve_core.so");
     if (existsSync(bundledPath)) return bundledPath;
-    const bundledPath2 = join(import.meta.dir, "../libsearch.so");
+    const bundledPath2 = join(import.meta.dir, "../libnerve_core.so");
     if (existsSync(bundledPath2)) return bundledPath2;
-    const cwdPath = join(process.cwd(), "libsearch.so");
+    const cwdPath = join(process.cwd(), "libnerve_core.so");
     if (existsSync(cwdPath)) return cwdPath;
-    return join(import.meta.dir, "../core/target/release/libsearch.so");
+    return join(import.meta.dir, "../../nerve-core/target/release/libnerve_core.so");
 };
 
 const getFilePath = (filename: string) => {
@@ -37,7 +37,7 @@ console.log(`Loading Nerve Engine from: ${LIB_PATH}`);
 
 const lib = dlopen(LIB_PATH, {
     get_article_text: {
-        args: [FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.usize, FFIType.u32],
+        args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.u32],
         returns: FFIType.ptr
     },
     free_article_text: {
@@ -45,16 +45,16 @@ const lib = dlopen(LIB_PATH, {
         returns: FFIType.void
     },
     process_query_sorted_unique: { 
-        args: [FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.ptr], 
+        args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.ptr, FFIType.u64], 
         returns: FFIType.void 
     },
     intersect_keywords: {
-        args: [FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.usize, FFIType.ptr],
-        returns: FFIType.usize
+        args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+        returns: FFIType.u64
     },
     merge_database: {
-        args: [FFIType.ptr, FFIType.usize, FFIType.ptr, FFIType.usize, FFIType.ptr],
-        returns: FFIType.usize
+        args: [FFIType.ptr, FFIType.u64, FFIType.ptr, FFIType.u64, FFIType.ptr],
+        returns: FFIType.u64
     }
 });
 
@@ -106,10 +106,10 @@ if (existsSync(DB_PATH)) {
 
 export const Engine = {
     addKeyword(articleId: number, word: string) {
-        const hash = Number(BigInt.asUintN(32, Bun.hash(word) as bigint));
+        const hash = Number(BigInt.asUintN(32, Bun.hash(word.toLowerCase()) as bigint));
         ramBuffer[ramCursor++] = articleId;
         ramBuffer[ramCursor++] = hash;
-        const entry = new Uint32Array([0, articleId, hash]);
+        const entry = new Uint32Array([articleId, hash]);
         appendFileSync(LOG_PATH, Buffer.from(entry.buffer));
         if (ramCursor >= MAX_RAM_BUFFER) this.triggerAsyncMerge();
     },
@@ -141,21 +141,22 @@ export const Engine = {
         return this.searchRaw(hashes, exclude);
     },
 
-    searchRaw(hashes: Uint32Array, exclude: number[] = []) {
+    searchRaw(hashes: Uint32Array, exclude: number[] = [], topK: number = 3) {
         if (isSearching) return [];
         isSearching = true;
         try {
             const excludeBuffer = new Uint32Array(exclude);
+            const dynamicResultBuffer = new Uint32Array(topK * 2);
             lib.symbols.process_query_sorted_unique(
                 ptr(mmapRelations.length > 0 ? mmapRelations : dummyU32), mmapCursor,
                 ptr(hashes.length > 0 ? hashes : dummyU32), hashes.length,
                 ptr(excludeBuffer.length > 0 ? excludeBuffer : dummyU32), excludeBuffer.length,
-                ptr(scoreBuffer), ptr(resultBuffer)
+                ptr(scoreBuffer), ptr(dynamicResultBuffer), topK
             );
             const results = [];
-            for (let i = 0; i < 3; i++) {
-                const id = resultBuffer[i * 2];
-                const score = resultBuffer[i * 2 + 1];
+            for (let i = 0; i < topK; i++) {
+                const id = dynamicResultBuffer[i * 2];
+                const score = dynamicResultBuffer[i * 2 + 1];
                 if (score > 0) results.push({ id, score });
             }
             return results;

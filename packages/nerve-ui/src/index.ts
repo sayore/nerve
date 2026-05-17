@@ -1,7 +1,6 @@
 // src/index.ts
 import { BrowserWindow, BrowserView } from "electrobun/bun";
-import { Engine, DungeonPath } from "./engine";
-import { type NerveRPCSchema } from "./types";
+import { Engine, DungeonPath, type NerveRPCSchema } from "nerve-bun";
 
 const dungeon = new DungeonPath();
 
