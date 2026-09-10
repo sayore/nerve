@@ -1,0 +1,15 @@
+schema = "akte/v1"
+id = "project.nerve"
+kind = "project"
+name = "nerve"
+description = "Adopted Git project; review owner and capabilities before publishing or deploying."
+version = "0.1.0"
+traits = ["needs-review"]
+
+[owner]
+project = "nerve"
+
+[source]
+repo = "local:project.nerve"
+path = "."
+manifest = ".werk/projects/nerve.akte.toml"
