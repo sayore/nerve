@@ -2,12 +2,24 @@ schema = "akte/v1"
 id = "project.nerve"
 kind = "project"
 name = "nerve"
-description = "Adopted Git project; review owner and capabilities before publishing or deploying."
+description = "Nerve workspace containing Rust core and TypeScript UI packages for search, retrieval, and memory workflows."
 version = "0.1.0"
-traits = ["needs-review"]
+keywords = ["nerve","search","retrieval","memory"]
+traits = ["rust","typescript","workspace"]
 
 [owner]
 project = "nerve"
+
+[[provides]]
+kind = "workspace"
+name = "nerve"
+description = "Search, retrieval, and memory workspace."
+
+[data.project]
+path = "."
+state = "unknown"
+summary = "Fachliche Review am 2026-09-10: Quellrepository und Projektakte geprüft; ein autoritativer operator-owned Fortschrittsstand ist im Quellstand nicht ausgewiesen."
+updated_at = "2026-09-10"
 
 [source]
 repo = "local:project.nerve"
