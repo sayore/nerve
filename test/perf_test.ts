@@ -1,5 +1,5 @@
 // test/perf_test.ts
-import { Engine, DungeonPath } from "../packages/nerve-bun/src/engine";
+import { Engine, DungeonPath, DbMode } from "../packages/nerve-bun/src/engine";
 import { unlinkSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -10,6 +10,7 @@ const DB_DIR = join(import.meta.dir, "../db");
 if (!existsSync(DB_DIR)) mkdirSync(DB_DIR);
 if (existsSync(LOG_PATH)) unlinkSync(LOG_PATH);
 if (existsSync(DB_PATH)) unlinkSync(DB_PATH);
+Engine.reset();
 
 console.log("--- Performance Test: Semantic Dungeon Crawler ---");
 
@@ -18,10 +19,13 @@ const KEYWORDS_PER_ARTICLE = 10;
 const TOTAL_RELATIONS = ARTICLE_COUNT * KEYWORDS_PER_ARTICLE;
 
 console.log(`Setup: Generating ${TOTAL_RELATIONS} relations...`);
+const setupStart = performance.now();
 const texts: string[] = [];
 const textIndex: number[] = [];
 let currentOffset = 0;
 
+Engine.setMode(DbMode.StrictAcid);
+Engine.beginTransaction();
 for (let i = 0; i < ARTICLE_COUNT; i++) {
     for (let k = 0; k < KEYWORDS_PER_ARTICLE; k++) {
         Engine.addKeyword(i, `word_${k}_${i % 100}`);
@@ -34,6 +38,7 @@ for (let i = 0; i < ARTICLE_COUNT; i++) {
     textIndex.push(i, currentOffset, buf.length);
     currentOffset += buf.length;
 }
+Engine.commitTransaction();
 
 // Persist texts and index
 const TEXT_PATH = join(DB_DIR, "texts.bin");
@@ -42,6 +47,7 @@ writeFileSync(TEXT_PATH, Buffer.from(texts.join('')));
 writeFileSync(TEXT_INDEX_PATH, new Uint32Array(textIndex));
 
 Engine.triggerAsyncMerge();
+console.log(`Setup + Strict ACID Commit + Atomic Merge took ${(performance.now() - setupStart).toFixed(2)}ms`);
 
 const dungeon = new DungeonPath();
 const startKeywords = ["word_1_5", "word_2_5", "word_3_5"];

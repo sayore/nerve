@@ -1,13 +1,19 @@
 {
-  "name": "nerve-workspace",
-  "private": true,
+  "name": "nerve",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
+    "build": "cargo build --release --manifest-path packages/nerve-core/Cargo.toml",
+    "build:native": "RUSTFLAGS='-C target-cpu=native' cargo build --release --manifest-path packages/nerve-core/Cargo.toml",
     "build:core": "cd packages/nerve-core && cargo build --release",
     "start": "bun run --cwd packages/nerve-ui start",
-    "test:perf": "bun test/perf_test.ts"
+    "test": "bun test/acid_and_perf_test.ts",
+    "test:perf": "bun test/perf_test.ts",
+    "bench": "bun run test/perf_test.ts"
   },
   "devDependencies": {
     "typescript": "^5.0.0"
